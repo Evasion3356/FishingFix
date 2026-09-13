@@ -33,40 +33,33 @@
 	simply because there are more read attempts per second and less real
 	time between them for the worker thread to land its update first.
 
-	THE FIX: replaces the (heavier, riskier -- global debug registers + a
-	vectored exception handler) hardware breakpoint with the same idea
-	applied narrowly and safely: hook TASK::_GET_TASK_FISHING itself
-	(scoped to fishing_core's own script, see NativeHook.h) and insert a
-	brief precise busy-wait (PreciseWaitMs, tuned to 3ms -- see kDelayMs)
-	immediately before calling through to the real native, giving the
-	fishing task's worker thread a deliberate window to finish its own
-	update first every time script is about to read it, instead of
-	relying on incidental trap overhead to sometimes provide one.
+	THE FIX: a precise ~3ms busy-wait (PreciseWaitMs, tuned to 3ms -- see
+	kDelayMs), gated on the script's OWN fishing phase (Global_1900073.
+	f_26[player], see kGlobalId/kF26ArrayOffset/kF26Stride below) and
+	called directly from ScriptMain's own loop (see script.cpp) once per
+	THIS ASI's script tick, giving the fishing task's worker thread a
+	deliberate window to finish its own update before script reads it.
 
-	The delay is gated on the script's OWN fishing phase (Global_1900073.
-	f_26[player], see kGlobalId/kF26ArrayOffset/kF26Stride below) rather
-	than raw mouse state -- phase 1-3 is the pre-commit/waggling window
-	where the race actually matters; once phase reaches 4+ the cast has
-	already committed and the extra wait would be pure waste. This scopes
-	the ~3ms hit to only the moments it's needed instead of paying it on
-	every tick the rod is simply out.
-
-	CURRENT TEST (see MaybeDelayForCastRaceTest, script.cpp): the delay
-	has been moved OUT of OnGetTaskFishing (now a transparent passthrough)
-	and INTO ScriptMain's own loop, called once per THIS ASI's script
-	tick instead of being wrapped specifically around _GET_TASK_FISHING's
-	call. Same kDelayMs, same IsAttemptingCast() phase gate -- the only
-	variable changed is WHERE on the shared script thread the stall
-	happens. If the cast still doesn't waggle with the delay here, that
-	confirms the fix works by giving the worker thread wall-clock time
-	anywhere on the shared script thread during the race window, not by
+	This used to be implemented by hooking TASK::_GET_TASK_FISHING itself
+	(scoped to fishing_core's own script via NativeHook) and inserting the
+	same delay immediately before calling through to the real native. A
+	side-by-side test moved the delay out of that hook and directly into
+	ScriptMain's loop instead, gated on the exact same phase check but not
 	sitting at any specific point relative to _GET_TASK_FISHING's own
-	call. Revert by moving the `if (IsAttemptingCast()) PreciseWaitMs(...)`
-	back into OnGetTaskFishing if this test says placement DOES matter.
+	call -- and the cast still fixed reliably. That confirmed the fix
+	works by giving the racing worker thread wall-clock time ANYWHERE on
+	the shared script thread during the race window, not by intercepting
+	the native call itself, so the hook (and the whole per-script native-
+	hooking mechanism it needed) was removed as unnecessary.
+
+	Phase 1-3 is the pre-commit/waggling window where the race actually
+	matters; once phase reaches 4+ the cast has already committed and the
+	extra wait would be pure waste. This scopes the ~3ms hit to only the
+	moments it's needed instead of paying it on every tick the rod is
+	simply out.
 */
 
 #include "FishingFix.h"
-#include "NativeHook.h"
 #include "Log.h"
 
 #include "..\..\ScriptHookSDK\inc\main.h"
@@ -78,8 +71,6 @@ namespace FishingFix
 {
 	namespace
 	{
-		constexpr std::uint64_t kNativeGetTaskFishing = 0xF3735ACD11ACD500ull;
-
 		// A 500ms Sleep() confirmed the theory (dropped the game to ~6
 		// FPS, but the cast succeeded reliably at that rate -- consistent
 		// with the worker thread always having enough real time to finish
@@ -122,14 +113,15 @@ namespace FishingFix
 			} while (static_cast<double>(now.QuadPart - start.QuadPart) < targetTicks);
 		}
 
-		const rage::joaat_t kFishingCoreHash = rage::Joaat("fishing_core");
-
 		// Global_1900073.f_26[player] -- the per-player fishing struct the
-		// script and the native task component both read/write. Calibrated
-		// live earlier this session: the array actually starts one slot
-		// after where the decompiler's field index (26) would suggest (a
-		// 1-slot header the decompiler doesn't show), and phase is the
-		// first UINT64 of each 30-slot-stride element.
+		// script and the native task component both read/write. Confirmed
+		// against decompiled script source: an array store on this field
+		// appears as `Global_1900073.f_26[i /*30*/] = 1;` -- the array
+		// actually starts one slot after the decompiler's field index (26)
+		// because RAGE script arrays reserve slot 0 for their own
+		// length/count (a header the decompiler's field index doesn't
+		// account for), and phase is the first UINT64 of each 30-slot-
+		// stride element (the `/*30*/` annotation matches kF26Stride).
 		constexpr int kGlobalId = 1900073;
 		constexpr int kF26ArrayOffset = 27;
 		constexpr int kF26Stride = 30;
@@ -179,69 +171,32 @@ namespace FishingFix
 			return (static_cast<double>(now.QuadPart) / g_qpcFrequency) * 1000.0;
 		}
 
-		double g_lastTickMs = 0.0;
-		double g_estimatedFps = 0.0;
 		bool g_wasAttemptingCast = false;
 		double g_windowEnterMs = 0.0;
-
-		void UpdateFpsEstimate()
-		{
-			double now = NowMs();
-			if (g_lastTickMs != 0.0)
-			{
-				double delta = now - g_lastTickMs;
-				if (delta > 0.0)
-					g_estimatedFps = 1000.0 / delta;
-			}
-			g_lastTickMs = now;
-		}
-
-		void OnGetTaskFishing(rage::scrNativeCallContext* ctx)
-		{
-			// TEST: delay moved out of this hook and into ScriptMain's own
-			// loop -- see MaybeDelayForCastRaceTest() below and
-			// script.cpp. This call is now a transparent passthrough.
-			NativeHook::CallOriginal(kFishingCoreHash, kNativeGetTaskFishing, ctx);
-		}
-
-		bool g_hooksRegistered = false;
 	}
 
-	void OnTick()
+	void Tick(double fps)
 	{
-		if (!g_hooksRegistered)
-		{
-			NativeHook::AddHook(kFishingCoreHash, kNativeGetTaskFishing, OnGetTaskFishing);
-			g_hooksRegistered = true;
-		}
-
-		NativeHook::Update();
-	}
-
-	void MaybeDelayForCastRaceTest()
-	{
-		UpdateFpsEstimate();
-
 		bool attempting = IsAttemptingCast();
 		double now = NowMs();
 
 		if (attempting && !g_wasAttemptingCast)
 		{
 			g_windowEnterMs = now;
-			Log::Write("FishingFix: TEST DELAY WINDOW ENTER fps~={:.1f}", g_estimatedFps);
+			Log::Write("FishingFix: DELAY WINDOW ENTER fps~={:.1f}", fps);
 		}
 		else if (!attempting && g_wasAttemptingCast)
 		{
-			Log::Write("FishingFix: TEST DELAY WINDOW EXIT after {:.0f}ms fps~={:.1f}",
-				now - g_windowEnterMs, g_estimatedFps);
+			Log::Write("FishingFix: DELAY WINDOW EXIT after {:.0f}ms fps~={:.1f}",
+				now - g_windowEnterMs, fps);
 		}
 		g_wasAttemptingCast = attempting;
 
 		// The choke lives behind these two checks -- IsAttemptingCast() is
 		// the fishing phase gate (Global_1900073 phase 1-3, see above), and
-		// g_estimatedFps > kMinFpsForChoke skips it entirely on hardware
-		// where the underlying race doesn't occur in the first place.
-		if (attempting && g_estimatedFps > kMinFpsForChoke)
+		// fps > kMinFpsForChoke skips it entirely on hardware where the
+		// underlying race doesn't occur in the first place.
+		if (attempting && fps > kMinFpsForChoke)
 			PreciseWaitMs(kDelayMs);
 	}
 }

@@ -14,8 +14,6 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\script.cpp" />
     <ClCompile Include="src\FishingFix.cpp" />
-    <ClCompile Include="src\NativeHook.cpp" />
-    <ClCompile Include="src\PatternScan.cpp" />
     <ClCompile Include="src\DeadEyeDiag.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -26,16 +24,7 @@
     <ClInclude Include="src\script.h" />
     <ClInclude Include="src\Log.h" />
     <ClInclude Include="src\FishingFix.h" />
-    <ClInclude Include="src\NativeHook.h" />
-    <ClInclude Include="src\PatternScan.h" />
     <ClInclude Include="src\DeadEyeDiag.h" />
-    <ClInclude Include="external\RDR-Classes\script\scrThread.hpp" />
-    <ClInclude Include="external\RDR-Classes\script\scrThreadContext.hpp" />
-    <ClInclude Include="external\RDR-Classes\script\scrProgram.hpp" />
-    <ClInclude Include="external\RDR-Classes\script\scrNativeHandler.hpp" />
-    <ClInclude Include="external\RDR-Classes\rage\atArray.hpp" />
-    <ClInclude Include="external\RDR-Classes\rage\joaat.hpp" />
-    <ClInclude Include="external\RDR-Classes\base\pgBase.hpp" />
     <ClInclude Include="external\spdlog\include\spdlog\spdlog.h" />
     <ClInclude Include="external\spdlog\include\spdlog\sinks\basic_file_sink.h" />
   </ItemGroup>

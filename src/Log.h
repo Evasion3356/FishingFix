@@ -7,9 +7,9 @@
 	Synchronous in both configs, same reasoning as BlackjackCheat's Log.h
 	(its own header comment has the full derivation: spdlog's ASYNC logger
 	deadlocks DLL_PROCESS_DETACH via its worker thread's join()). This
-	project's OnTick() calls Log::Write on every hook-observed native call
-	while fishing_core is loaded, which is Debug-diagnostic-only by nature
-	(see FishingFix.cpp) -- not a hot path that needs to be async.
+	project's FishingFix::Tick()/DeadEyeDiag::OnTick() only call
+	Log::Write on delay-window enter/exit (see FishingFix.cpp/
+	DeadEyeDiag.cpp) -- not a hot path that needs to be async.
 */
 
 #pragma once

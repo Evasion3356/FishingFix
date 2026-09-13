@@ -13,6 +13,11 @@
 	without first needing to find its own equivalent of
 	_GET_TASK_FISHING.
 
+	The FPS estimate this gates on is computed once in ScriptMain
+	(script.cpp) and passed in -- it used to be tracked independently
+	here too (a second QueryPerformanceCounter-based estimate of the same
+	thing FishingFix.cpp was already computing every tick).
+
 	"Dead Eye active" is *ability+302 != 0* -- confirmed live earlier
 	this session: probing ability+301 and ability+302 while repeatedly
 	entering/exiting Dead Eye showed +301 constant at 1 the whole time (a
@@ -32,9 +37,6 @@
 		poolEntry = *(QWORD*)(328 * (poolIndex - dword_1439ECE40)
 		                      + qword_1439ECE48 + 240) & ~1ULL
 		ability   = *(QWORD*)(poolEntry + 0x93B0)
-
-	Press F9 in-game the instant the weird gun animation happens --
-	writes a MARK line into FishingFix.log to bracket the right window.
 */
 
 #include "DeadEyeDiag.h"
@@ -58,10 +60,8 @@ namespace DeadEyeDiag
 		constexpr double kMinFpsForChoke = 120.0;
 
 		// Static addresses read directly out of IDA (RDR2_Dumped.exe.i64,
-		// 1491.50) -- rebased to this process's actual load address the
-		// same way NativeHook.h's own AddHookByAddress doc comment
-		// describes: liveAddress = GetModuleHandle(nullptr) +
-		// (idaAddress - 0x140000000).
+		// 1491.50) -- rebased to this process's actual load address:
+		// liveAddress = GetModuleHandle(nullptr) + (idaAddress - 0x140000000).
 		constexpr std::uintptr_t kIdaImageBase = 0x140000000ull;
 		constexpr std::uintptr_t kIdaResolvePedFn = 0x140EE4DB0ull; // sub_140EE4DB0
 		constexpr std::uintptr_t kIdaPoolIndexBase = 0x1439ECE40ull; // dword_1439ECE40
@@ -158,25 +158,10 @@ namespace DeadEyeDiag
 			}
 		}
 
-		double g_lastTickMs = 0.0;
-		double g_estimatedFps = 0.0;
-
-		void UpdateFpsEstimate()
-		{
-			double now = NowMs();
-			if (g_lastTickMs != 0.0)
-			{
-				double delta = now - g_lastTickMs;
-				if (delta > 0.0)
-					g_estimatedFps = 1000.0 / delta;
-			}
-			g_lastTickMs = now;
-		}
-
 		bool g_wasActive = false;
 		double g_windowEnterMs = 0.0;
 
-		void MaybeDelayWhileDeadEyeActive()
+		void MaybeDelayWhileDeadEyeActive(double fps)
 		{
 			bool active = IsDeadEyeActive();
 			double now = NowMs();
@@ -184,35 +169,26 @@ namespace DeadEyeDiag
 			if (active && !g_wasActive)
 			{
 				g_windowEnterMs = now;
-				Log::Write("DeadEyeDiag: DEAD EYE ACTIVE -- choking fps~={:.1f}", g_estimatedFps);
+				Log::Write("DeadEyeDiag: DEAD EYE ACTIVE -- choking fps~={:.1f}", fps);
 			}
 			else if (!active && g_wasActive)
 			{
 				Log::Write("DeadEyeDiag: DEAD EYE INACTIVE -- choke released after {:.0f}ms fps~={:.1f}",
-					now - g_windowEnterMs, g_estimatedFps);
+					now - g_windowEnterMs, fps);
 			}
 			g_wasActive = active;
 
 			// The choke lives behind these two checks -- IsDeadEyeActive()
 			// reads ability+302 (see header comment), and
-			// g_estimatedFps > kMinFpsForChoke skips it entirely on
-			// hardware where the underlying race doesn't occur in the
-			// first place.
-			if (active && g_estimatedFps > kMinFpsForChoke)
+			// fps > kMinFpsForChoke skips it entirely on hardware where
+			// the underlying race doesn't occur in the first place.
+			if (active && fps > kMinFpsForChoke)
 				PreciseWaitMs(kDelayMs);
 		}
-
-		bool g_f9WasDown = false;
 	}
 
-	void OnTick()
+	void OnTick(double fps)
 	{
-		UpdateFpsEstimate();
-		MaybeDelayWhileDeadEyeActive();
-
-		bool f9Down = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
-		if (f9Down && !g_f9WasDown)
-			Log::Write("DeadEyeDiag: ==== MARK (F9 pressed) fps~={:.1f} ====", g_estimatedFps);
-		g_f9WasDown = f9Down;
+		MaybeDelayWhileDeadEyeActive(fps);
 	}
 }

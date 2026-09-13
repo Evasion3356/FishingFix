@@ -5,11 +5,12 @@ then left click to cast the fishing rod fails intermittently above ~60
 FPS -- Arthur pulls the rod back for ~0.5s then releases it, over and
 over, never completing the cast, only when uncapped/high FPS. Sibling of
 `../PokerCheat`/`../BlackjackCheat` (same ScriptHookRDR2 + native C++
-toolchain) but architecturally different from both -- see "Architecture"
-below.
+toolchain).
 
 **Status: fixed and confirmed live.** See `src/FishingFix.cpp`'s header
-comment for the full root-cause trace.
+comment for the full root-cause trace. Also carries `DeadEyeDiag`, a
+second instance of the same confirmed mechanism applied to Dead Eye's
+active window (see `src/DeadEyeDiag.cpp`).
 
 ## Root cause
 
@@ -41,13 +42,26 @@ free to just set a flag.
 
 ## The fix
 
-`src/FishingFix.cpp` hooks `TASK::_GET_TASK_FISHING`
-(`0xF3735ACD11ACD500`, scoped to `fishing_core`'s own script -- see
-"Architecture" below) and inserts a precise busy-wait (`PreciseWaitMs`,
-via `QueryPerformanceCounter`, tuned empirically to `kDelayMs = 3.0`)
-immediately before calling through to the real native. This gives the
-task's worker thread a deliberate window to finish its update before
-script reads it, every time, instead of relying on incidental overhead.
+`src/FishingFix.cpp`'s `Tick()` (called once per script tick from
+`ScriptMain`, see `script.cpp`) inserts a precise busy-wait
+(`PreciseWaitMs`, via `QueryPerformanceCounter`, tuned empirically to
+`kDelayMs = 3.0`) whenever the script's own fishing phase is 1-3. This
+gives the task's worker thread a deliberate window to finish its update
+before script next reads it, every time, instead of relying on
+incidental overhead.
+
+This originally worked by hooking `TASK::_GET_TASK_FISHING`
+(`0xF3735ACD11ACD500`) directly and inserting the delay immediately
+before calling through to the real native, scoped to `fishing_core`'s
+own script via a per-script native-table patch. A side-by-side test
+moved the delay out of that hook and directly into `ScriptMain`'s loop
+instead (same phase gate, no longer tied to the native call at all) and
+the cast still fixed reliably -- proving the fix works by giving the
+racing worker thread wall-clock time anywhere on the shared script
+thread during the race window, not by intercepting the native call
+itself. The hook (and the per-script native-hooking machinery it
+needed, including the vendored `external/RDR-Classes` tree) was removed
+as a result -- this project no longer patches any native's table.
 
 The delay is gated on the script's own fishing phase rather than raw
 mouse state, so it only fires during the actual pre-commit/waggling
@@ -60,47 +74,23 @@ Global_1900073.f_26[player]  -- per-player fishing struct
   -> phase is the first UINT64 of each element
 ```
 
-`kF26ArrayOffset = 27`, not the decompiler's field index `26` -- there's
-a 1-slot header before the array that only showed up via live
-calibration, not in the decompiled script source. If a future build
-needs re-deriving this, don't trust the decompiler's field index alone;
-confirm the real offset live.
-
-## Architecture: per-script native hooking
-
-`src/NativeHook.h/.cpp` patches a single `rage::scrProgram`'s own
-`m_NativeEntrypoints` table (via `rage::scrProgram::
-GetAddressOfNativeEntrypoint`, vendored in `external/RDR-Classes/script/
-scrProgram.hpp`) -- a hook registered for `"fishing_core"_J` only fires
-for natives called from fishing_core's own bytecode. No global detour,
-no MinHook/trampoline, no effect on any other script or this ASI's own
-`invoke<>()` calls.
-
-This is a deliberately trimmed port of `..\HorseMenu\src\game\backend\
-NativeHooks.cpp`'s technique -- not a copy. HorseMenu's version sits on a
-generic "call any of thousands of natives by a generated NativeIndex
-enum" system (`Crossmap.hpp`/`Natives.hpp`, both 100k+ line generated
-files) built for calling any native from anywhere in that large
-codebase. This project only ever hooks one native by its already-known
-hash, so it skips that system entirely and calls
-`GetAddressOfNativeEntrypoint` directly.
-
-The two raw engine pointers this needs (RDR2.exe's global native-hash ->
-current-handler resolver, and the live array of loaded
-`rage::scrProgram*`) are resolved via AOB signature, ported from
-HorseMenu's own `Pointers.cpp` (`"GetNativeHandler"`/`"ScriptPrograms"`
-patterns) -- see `NativeHook.cpp`'s header comment for the exact bytes
-and offsets. Confirmed working live on build 1491.50 this session.
-
-`NativeHook.cpp` also caches, per hook entry, which `scrProgram*`
-instances have already been checked/patched (`allScriptsCache` /
-`installedOn`) so `Update()` doesn't redo an expensive native-table scan
-every tick once a hook is installed -- only a script reload/unload
-invalidates the cache slot.
+`kF26ArrayOffset = 27`, not the decompiler's field index `26` -- confirmed
+against decompiled script source itself: an array store on this same
+field appears as `Global_1900073.f_26[i /*30*/] = 1;` (the `/*30*/` is
+the decompiler's own per-element stride annotation, matching
+`kF26Stride` exactly). The `+1` beyond the field's declared index is the
+well-known RAGE script VM convention of an array's slot 0 holding its
+own length/count, with real elements starting one slot after -- so
+`kF26ArrayOffset` is just `26 (decompiler's field index) + 1 (that
+header slot)`, derivable statically from any array-store on this field
+rather than only via live memory calibration.
 
 `getGlobalPtr(int globalId)` (declared in `..\ScriptHookSDK\inc\main.h`)
 is used directly for reading the phase field -- no AOB needed for
-globals, ScriptHookRDR2's SDK exports it.
+globals, ScriptHookRDR2's SDK exports it. `DeadEyeDiag.cpp` instead
+resolves its own ability-object pointer via a small chain of raw reads
+off a statically-known (IDA-derived, ASLR-rebased) function and fields
+-- see that file's header comment.
 
 ## Build & deploy
 
@@ -123,41 +113,40 @@ Runtime log: `<game folder>\FishingFix.log`.
 ## Source layout
 
 - `src/main.cpp` -- `DllMain`, registers `ScriptMain`.
-  `DLL_PROCESS_DETACH` calls `NativeHook::RemoveAll()` before
-  `scriptUnregister` -- without it, fishing_core's own native table keeps
-  pointing at a hook function living inside this DLL after it unmaps,
-  and the next call into it jumps into unmapped memory (a real crash
-  this project hit via ScriptHookRDR2's eject feature before this
-  existed).
-- `src/script.h/.cpp` -- `ScriptMain`'s loop: `FishingFix::OnTick()` then
-  `WAIT(0)`, nothing else. No menu, no keyboard handler -- always on.
-- `src/FishingFix.h/.cpp` -- the actual fix. Registers the
-  `_GET_TASK_FISHING` hook once, calls `NativeHook::Update()` every
-  tick. **Its `.cpp` header comment has the full root-cause trace** --
-  read it before changing the delay or the phase gating.
-- `src/NativeHook.h/.cpp` -- generic (not fishing-specific) per-script
-  native-table patcher. See "Architecture" above.
-- `src/PatternScan.h/.cpp` -- AOB pattern scanner, vendored unchanged
-  from Poker/BlackjackCheat's own copy.
+- `src/script.h/.cpp` -- `ScriptMain`'s loop: `FishingFix::Tick()`, then
+  `DeadEyeDiag::OnTick()`, then `WAIT(0)`, nothing else. No menu, no
+  keyboard handler -- always on.
+- `src/FishingFix.h/.cpp` -- the actual fix. **Its `.cpp` header comment
+  has the full root-cause trace** -- read it before changing the delay
+  or the phase gating.
+- `src/DeadEyeDiag.h/.cpp` -- the same confirmed mechanism applied to
+  Dead Eye's active window. See that file's header comment for the
+  ability-pointer derivation.
 - `src/Log.h` -- spdlog file logger, adapted from BlackjackCheat's own
   (see that file's header comment for why it's synchronous in both
   configs -- same DLL_PROCESS_DETACH deadlock risk applies here).
-- `external/RDR-Classes/` -- vendored subset (not the full copy
-  Poker/BlackjackCheat carry): `script/` (scrThread, scrThreadContext,
-  scrProgram, scrNativeHandler), `rage/` (atArray, joaat), `base/`
-  (pgBase, needed by scrProgram.hpp). Copied from BlackjackCheat's own
-  `external/RDR-Classes`, not a submodule.
 - `external/spdlog/` -- vendored copy, copied wholesale from
   BlackjackCheat's own checked-out `external/spdlog`.
 
+This project does not hook or patch any native -- it used to (a
+per-script `rage::scrProgram` native-table patch, ported from
+HorseMenu's `NativeHooks.cpp` technique, living in `src/NativeHook.h/
+.cpp` + `src/PatternScan.h/.cpp` + a vendored `external/RDR-Classes`
+subset), but that was removed once the delay was confirmed to work
+identically from `ScriptMain`'s own loop -- see "The fix" above. If
+resurrecting per-native hooking is ever needed again, `../PokerCheat`/
+`../BlackjackCheat` and `../HorseMenu` still carry the pattern.
+
 ## If a future RDR2 build changes this
 
-- Re-derive the `GetNativeHandler`/`ScriptPrograms` AOB patterns if
-  `NativeHook.cpp`'s `EnsureResolved()` logs a pattern-not-found (fails
-  safe -- no hooks installed, never a crash).
-- Re-derive `kF26ArrayOffset`/`kF26Stride` live if `Global_1900073`'s
-  layout shifts -- don't trust the decompiler's raw field index, confirm
-  against a live memory dump the way this session did.
+- Re-derive `kF26ArrayOffset`/`kF26Stride` if `Global_1900073`'s layout
+  shifts -- this no longer requires live calibration: find any
+  `Global_1900073.f_NN[i /*stride*/] = ...` array store in the new
+  build's decompiled scripts and take `kF26ArrayOffset = NN + 1` (the
+  `+1` is the RAGE VM's array-length header slot, not something the
+  decompiler shows in the field index) and `kF26Stride` straight from
+  the `/*stride*/` annotation. Only fall back to a live memory dump if
+  the field can't be found in decompiled source at all.
 - `kDelayMs = 3.0` was tuned empirically on this session's hardware/build
   combination (worked reliably at 2ms and 3ms; failed at 0.5ms in
   practice, though the true minimum was never pinned down exactly). If
