@@ -16,6 +16,7 @@
     <ClCompile Include="src\FishingFix.cpp" />
     <ClCompile Include="src\NativeHook.cpp" />
     <ClCompile Include="src\PatternScan.cpp" />
+    <ClCompile Include="src\DeadEyeDiag.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\ScriptHookSDK\inc\main.h" />
@@ -27,6 +28,7 @@
     <ClInclude Include="src\FishingFix.h" />
     <ClInclude Include="src\NativeHook.h" />
     <ClInclude Include="src\PatternScan.h" />
+    <ClInclude Include="src\DeadEyeDiag.h" />
     <ClInclude Include="external\RDR-Classes\script\scrThread.hpp" />
     <ClInclude Include="external\RDR-Classes\script\scrThreadContext.hpp" />
     <ClInclude Include="external\RDR-Classes\script\scrProgram.hpp" />

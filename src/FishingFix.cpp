@@ -50,6 +50,19 @@
 	already committed and the extra wait would be pure waste. This scopes
 	the ~3ms hit to only the moments it's needed instead of paying it on
 	every tick the rod is simply out.
+
+	CURRENT TEST (see MaybeDelayForCastRaceTest, script.cpp): the delay
+	has been moved OUT of OnGetTaskFishing (now a transparent passthrough)
+	and INTO ScriptMain's own loop, called once per THIS ASI's script
+	tick instead of being wrapped specifically around _GET_TASK_FISHING's
+	call. Same kDelayMs, same IsAttemptingCast() phase gate -- the only
+	variable changed is WHERE on the shared script thread the stall
+	happens. If the cast still doesn't waggle with the delay here, that
+	confirms the fix works by giving the worker thread wall-clock time
+	anywhere on the shared script thread during the race window, not by
+	sitting at any specific point relative to _GET_TASK_FISHING's own
+	call. Revert by moving the `if (IsAttemptingCast()) PreciseWaitMs(...)`
+	back into OnGetTaskFishing if this test says placement DOES matter.
 */
 
 #include "FishingFix.h"
@@ -136,17 +149,49 @@ namespace FishingFix
 			return value >= kPhasePreCommitMin && value <= kPhasePreCommitMax;
 		}
 
+		// Instrumentation only -- confirmed live that the FPS hit during
+		// the test tracks arithmetically with kDelayMs (baseline ~190-
+		// 205fps/~5.2ms-per-frame; +3ms/frame -> ~122fps, which is
+		// exactly the ~110-139fps band observed) and that it holds for
+		// EXACTLY as long as IsAttemptingCast() is true -- one ENTER, one
+		// EXIT, nothing outside that bracket. The choke is fully and
+		// only gated by the fishing phase check; there is no other path
+		// to PreciseWaitMs in this file.
+		double NowMs()
+		{
+			if (g_qpcFrequency == 0.0)
+			{
+				LARGE_INTEGER freq;
+				QueryPerformanceFrequency(&freq);
+				g_qpcFrequency = static_cast<double>(freq.QuadPart);
+			}
+			LARGE_INTEGER now;
+			QueryPerformanceCounter(&now);
+			return (static_cast<double>(now.QuadPart) / g_qpcFrequency) * 1000.0;
+		}
+
+		double g_lastTickMs = 0.0;
+		double g_estimatedFps = 0.0;
+		bool g_wasAttemptingCast = false;
+		double g_windowEnterMs = 0.0;
+
+		void UpdateFpsEstimate()
+		{
+			double now = NowMs();
+			if (g_lastTickMs != 0.0)
+			{
+				double delta = now - g_lastTickMs;
+				if (delta > 0.0)
+					g_estimatedFps = 1000.0 / delta;
+			}
+			g_lastTickMs = now;
+		}
+
 		void OnGetTaskFishing(rage::scrNativeCallContext* ctx)
 		{
-			// Only pay the delay while the script's own fishing phase is
-			// in the pre-commit window -- this native is called every
-			// tick for the whole time the rod's out (idle, reeling,
-			// already-committed cast, etc. too), and none of that needs
-			// the extra window, only the moment the race can actually
-			// happen.
-			if (IsAttemptingCast())
-				PreciseWaitMs(kDelayMs);
-
+			// TEST: delay moved out of this hook and into ScriptMain's own
+			// loop -- see MaybeDelayForCastRaceTest() below and
+			// script.cpp. This call is now a transparent passthrough.
 			NativeHook::CallOriginal(kFishingCoreHash, kNativeGetTaskFishing, ctx);
 		}
 
@@ -162,5 +207,32 @@ namespace FishingFix
 		}
 
 		NativeHook::Update();
+	}
+
+	void MaybeDelayForCastRaceTest()
+	{
+		UpdateFpsEstimate();
+
+		bool attempting = IsAttemptingCast();
+		double now = NowMs();
+
+		if (attempting && !g_wasAttemptingCast)
+		{
+			g_windowEnterMs = now;
+			Log::Write("FishingFix: TEST DELAY WINDOW ENTER fps~={:.1f}", g_estimatedFps);
+		}
+		else if (!attempting && g_wasAttemptingCast)
+		{
+			Log::Write("FishingFix: TEST DELAY WINDOW EXIT after {:.0f}ms fps~={:.1f}",
+				now - g_windowEnterMs, g_estimatedFps);
+		}
+		g_wasAttemptingCast = attempting;
+
+		// The ENTIRE choke lives behind this one check -- IsAttemptingCast()
+		// is the fishing phase gate (Global_1900073 phase 1-3, see above).
+		// False the rest of the time: no wait, no cost, nothing to gate
+		// around anywhere else.
+		if (attempting)
+			PreciseWaitMs(kDelayMs);
 	}
 }
