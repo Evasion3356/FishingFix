@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\script.cpp" />
+    <ClCompile Include="src\FishingFix.cpp" />
+    <ClCompile Include="src\NativeHook.cpp" />
+    <ClCompile Include="src\PatternScan.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\ScriptHookSDK\inc\main.h" />
+    <ClInclude Include="..\ScriptHookSDK\inc\enums.h" />
+    <ClInclude Include="..\ScriptHookSDK\inc\natives.h" />
+    <ClInclude Include="..\ScriptHookSDK\inc\types.h" />
+    <ClInclude Include="src\script.h" />
+    <ClInclude Include="src\Log.h" />
+    <ClInclude Include="src\FishingFix.h" />
+    <ClInclude Include="src\NativeHook.h" />
+    <ClInclude Include="src\PatternScan.h" />
+    <ClInclude Include="external\RDR-Classes\script\scrThread.hpp" />
+    <ClInclude Include="external\RDR-Classes\script\scrThreadContext.hpp" />
+    <ClInclude Include="external\RDR-Classes\script\scrProgram.hpp" />
+    <ClInclude Include="external\RDR-Classes\script\scrNativeHandler.hpp" />
+    <ClInclude Include="external\RDR-Classes\rage\atArray.hpp" />
+    <ClInclude Include="external\RDR-Classes\rage\joaat.hpp" />
+    <ClInclude Include="external\RDR-Classes\base\pgBase.hpp" />
+    <ClInclude Include="external\spdlog\include\spdlog\spdlog.h" />
+    <ClInclude Include="external\spdlog\include\spdlog\sinks\basic_file_sink.h" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{7F3A9D1C-6E4B-4C2A-9F5D-1B8A3E7C2D6F}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>FishingFix</RootNamespace>
+    <ProjectName>FishingFix</ProjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros">
+    <GameDir>E:\SteamLibrary\steamapps\common\Red Dead Redemption 2</GameDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <TargetExt>.asi</TargetExt>
+    <OutDir>bin\$(Configuration)\</OutDir>
+    <IntDir>tmp\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <TargetExt>.asi</TargetExt>
+    <OutDir>bin\$(Configuration)\</OutDir>
+    <IntDir>tmp\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;FISHINGFIX_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <FloatingPointModel>Fast</FloatingPointModel>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <AdditionalIncludeDirectories>external\spdlog\include;external\RDR-Classes;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalOptions>..\ScriptHookSDK\lib\ScriptHookRDR2.lib %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+    <PostBuildEvent>
+      <Command>copy /Y "$(TargetPath)" "$(GameDir)\$(TargetFileName)"</Command>
+      <Message>Deploying $(TargetFileName) to $(GameDir)</Message>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>Disabled</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>false</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;FISHINGFIX_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <!-- Static debug CRT (/MTd), not the DLL variant: keeps the ASI
+           self-contained inside RDR2.exe's process without needing
+           ucrtbased.dll/msvcp140d.dll on the target machine's PATH. -->
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <FloatingPointModel>Fast</FloatingPointModel>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <AdditionalIncludeDirectories>external\spdlog\include;external\RDR-Classes;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>false</EnableCOMDATFolding>
+      <OptimizeReferences>false</OptimizeReferences>
+      <AdditionalOptions>..\ScriptHookSDK\lib\ScriptHookRDR2.lib %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+    <PostBuildEvent>
+      <Command>copy /Y "$(TargetPath)" "$(GameDir)\$(TargetFileName)"
+copy /Y "$(TargetDir)$(TargetName).pdb" "$(GameDir)\$(TargetName).pdb"</Command>
+      <Message>Deploying $(TargetFileName) + PDB to $(GameDir)</Message>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
