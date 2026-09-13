@@ -91,6 +91,15 @@ namespace FishingFix
 		// instead, precise well below 1ms.
 		constexpr double kDelayMs = 3.0;
 
+		// The race this delay covers only manifests at high tick rates --
+		// at lower FPS the naturally longer per-tick gap already gives the
+		// worker thread enough wall-clock time to land its update first
+		// (this is exactly what the 500ms Sleep() test above confirmed:
+		// reliable at ~6fps with zero fix applied). Below this threshold
+		// the choke is pure unconditional cost for no benefit, so it's
+		// gated off entirely rather than paying it on slower hardware.
+		constexpr double kMinFpsForChoke = 120.0;
+
 		double g_qpcFrequency = 0.0;
 
 		void PreciseWaitMs(double ms)
@@ -228,11 +237,11 @@ namespace FishingFix
 		}
 		g_wasAttemptingCast = attempting;
 
-		// The ENTIRE choke lives behind this one check -- IsAttemptingCast()
-		// is the fishing phase gate (Global_1900073 phase 1-3, see above).
-		// False the rest of the time: no wait, no cost, nothing to gate
-		// around anywhere else.
-		if (attempting)
+		// The choke lives behind these two checks -- IsAttemptingCast() is
+		// the fishing phase gate (Global_1900073 phase 1-3, see above), and
+		// g_estimatedFps > kMinFpsForChoke skips it entirely on hardware
+		// where the underlying race doesn't occur in the first place.
+		if (attempting && g_estimatedFps > kMinFpsForChoke)
 			PreciseWaitMs(kDelayMs);
 	}
 }

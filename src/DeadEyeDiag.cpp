@@ -51,6 +51,12 @@ namespace DeadEyeDiag
 		// comment for how it was tuned.
 		constexpr double kDelayMs = 3.0;
 
+		// Same reasoning as FishingFix.cpp's own kMinFpsForChoke: below
+		// this the per-tick gap is already long enough that the race this
+		// covers isn't happening, so skip the choke rather than pay its
+		// cost for no benefit on slower hardware.
+		constexpr double kMinFpsForChoke = 120.0;
+
 		// Static addresses read directly out of IDA (RDR2_Dumped.exe.i64,
 		// 1491.50) -- rebased to this process's actual load address the
 		// same way NativeHook.h's own AddHookByAddress doc comment
@@ -187,11 +193,12 @@ namespace DeadEyeDiag
 			}
 			g_wasActive = active;
 
-			// The ENTIRE choke lives behind this one check -- IsDeadEyeActive()
-			// reads ability+302 (see header comment). False the rest of
-			// the time: no wait, no cost, nothing to gate around anywhere
-			// else.
-			if (active)
+			// The choke lives behind these two checks -- IsDeadEyeActive()
+			// reads ability+302 (see header comment), and
+			// g_estimatedFps > kMinFpsForChoke skips it entirely on
+			// hardware where the underlying race doesn't occur in the
+			// first place.
+			if (active && g_estimatedFps > kMinFpsForChoke)
 				PreciseWaitMs(kDelayMs);
 		}
 
