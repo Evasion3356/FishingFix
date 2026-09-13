@@ -53,12 +53,6 @@ namespace DeadEyeDiag
 		// comment for how it was tuned.
 		constexpr double kDelayMs = 3.0;
 
-		// Same reasoning as FishingFix.cpp's own kMinFpsForChoke: below
-		// this the per-tick gap is already long enough that the race this
-		// covers isn't happening, so skip the choke rather than pay its
-		// cost for no benefit on slower hardware.
-		constexpr double kMinFpsForChoke = 120.0;
-
 		// Static addresses read directly out of IDA (RDR2_Dumped.exe.i64,
 		// 1491.50) -- rebased to this process's actual load address:
 		// liveAddress = GetModuleHandle(nullptr) + (idaAddress - 0x140000000).
@@ -161,7 +155,7 @@ namespace DeadEyeDiag
 		bool g_wasActive = false;
 		double g_windowEnterMs = 0.0;
 
-		void MaybeDelayWhileDeadEyeActive(double fps)
+		void MaybeDelayWhileDeadEyeActive()
 		{
 			bool active = IsDeadEyeActive();
 			double now = NowMs();
@@ -169,26 +163,27 @@ namespace DeadEyeDiag
 			if (active && !g_wasActive)
 			{
 				g_windowEnterMs = now;
-				Log::Write("DeadEyeDiag: DEAD EYE ACTIVE -- choking fps~={:.1f}", fps);
+				Log::Write("DeadEyeDiag: DEAD EYE ACTIVE -- choking");
 			}
 			else if (!active && g_wasActive)
 			{
-				Log::Write("DeadEyeDiag: DEAD EYE INACTIVE -- choke released after {:.0f}ms fps~={:.1f}",
-					now - g_windowEnterMs, fps);
+				Log::Write("DeadEyeDiag: DEAD EYE INACTIVE -- choke released after {:.0f}ms",
+					now - g_windowEnterMs);
 			}
 			g_wasActive = active;
 
-			// The choke lives behind these two checks -- IsDeadEyeActive()
-			// reads ability+302 (see header comment), and
-			// fps > kMinFpsForChoke skips it entirely on hardware where
-			// the underlying race doesn't occur in the first place.
-			if (active && fps > kMinFpsForChoke)
+			// The choke lives behind IsDeadEyeActive() alone now (reads
+			// ability+302, see header comment). The FPS floor that used to
+			// also gate this was dropped -- see FishingFix.cpp's Tick() for
+			// why (the FPS estimate proved unreliable enough to sometimes
+			// skip the choke exactly when it was needed).
+			if (active)
 				PreciseWaitMs(kDelayMs);
 		}
 	}
 
-	void OnTick(double fps)
+	void OnTick()
 	{
-		MaybeDelayWhileDeadEyeActive(fps);
+		MaybeDelayWhileDeadEyeActive();
 	}
 }

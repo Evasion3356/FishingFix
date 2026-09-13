@@ -82,15 +82,6 @@ namespace FishingFix
 		// instead, precise well below 1ms.
 		constexpr double kDelayMs = 3.0;
 
-		// The race this delay covers only manifests at high tick rates --
-		// at lower FPS the naturally longer per-tick gap already gives the
-		// worker thread enough wall-clock time to land its update first
-		// (this is exactly what the 500ms Sleep() test above confirmed:
-		// reliable at ~6fps with zero fix applied). Below this threshold
-		// the choke is pure unconditional cost for no benefit, so it's
-		// gated off entirely rather than paying it on slower hardware.
-		constexpr double kMinFpsForChoke = 120.0;
-
 		double g_qpcFrequency = 0.0;
 
 		void PreciseWaitMs(double ms)
@@ -175,7 +166,7 @@ namespace FishingFix
 		double g_windowEnterMs = 0.0;
 	}
 
-	void Tick(double fps)
+	void Tick()
 	{
 		bool attempting = IsAttemptingCast();
 		double now = NowMs();
@@ -183,20 +174,23 @@ namespace FishingFix
 		if (attempting && !g_wasAttemptingCast)
 		{
 			g_windowEnterMs = now;
-			Log::Write("FishingFix: DELAY WINDOW ENTER fps~={:.1f}", fps);
+			Log::Write("FishingFix: DELAY WINDOW ENTER");
 		}
 		else if (!attempting && g_wasAttemptingCast)
 		{
-			Log::Write("FishingFix: DELAY WINDOW EXIT after {:.0f}ms fps~={:.1f}",
-				now - g_windowEnterMs, fps);
+			Log::Write("FishingFix: DELAY WINDOW EXIT after {:.0f}ms",
+				now - g_windowEnterMs);
 		}
 		g_wasAttemptingCast = attempting;
 
-		// The choke lives behind these two checks -- IsAttemptingCast() is
-		// the fishing phase gate (Global_1900073 phase 1-3, see above), and
-		// fps > kMinFpsForChoke skips it entirely on hardware where the
-		// underlying race doesn't occur in the first place.
-		if (attempting && fps > kMinFpsForChoke)
+		// The choke lives behind IsAttemptingCast() alone now -- the
+		// fishing phase gate (Global_1900073 phase 1-3, see above). The
+		// FPS floor that used to also gate this was dropped: live testing
+		// showed the FPS estimate itself was unreliable enough to
+		// sometimes skip the choke exactly when the race it guards
+		// against was happening, i.e. it could cause the very bug this
+		// file fixes.
+		if (attempting)
 			PreciseWaitMs(kDelayMs);
 	}
 }
