@@ -33,7 +33,7 @@
 	simply because there are more read attempts per second and less real
 	time between them for the worker thread to land its update first.
 
-	THE FIX: a precise ~3ms busy-wait (tuned to 3ms -- see kDelayMs),
+	THE FIX: a precise ~4ms busy-wait (tuned to 4ms -- see kDelayMs),
 	gated on fishing_core running and any ped having the main fishing
 	task's phase in 0-4 (see kPhaseMin/kPhaseMax below), called directly
 	from ScriptMain's own loop (see script.cpp) once per THIS ASI's
@@ -118,7 +118,7 @@ namespace FishingFix
 	namespace
 	{
 		// Same value confirmed live for FishingFix and reused by DeadEyeFix.
-		constexpr double kDelayMs = 3.0;
+		constexpr double kDelayMs = 4.0;
 
 		constexpr int kPhaseMin = 0;
 		constexpr int kPhaseMax = 4;
@@ -215,11 +215,11 @@ namespace FishingFix
 		if (attempting && !g_wasAttempting)
 		{
 			g_windowEnterMs = GameMemory::NowMs();
-			Log::Write("choking");
+			Log::Write("FishingFix: choking");
 		}
 		else if (!attempting && g_wasAttempting)
 		{
-			Log::Write("choke released after {:.0f}ms",
+			Log::Write("FishingFix: choke released after {:.0f}ms",
 				GameMemory::NowMs() - g_windowEnterMs);
 		}
 		g_wasAttempting = attempting;

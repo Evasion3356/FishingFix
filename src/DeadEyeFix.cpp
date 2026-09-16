@@ -45,7 +45,7 @@ namespace DeadEyeFix
 	{
 		// Same value FishingFix confirmed live -- see its own header
 		// comment for how it was tuned.
-		constexpr double kDelayMs = 3.0;
+		constexpr double kDelayMs = 4.0;
 
 		constexpr std::uintptr_t kAbilityPointerOffset = 0x93B0; // 37808 decimal
 		constexpr std::uintptr_t kPoolEntryFieldOffset = 240;
@@ -117,11 +117,11 @@ namespace DeadEyeFix
 			if (active && !g_wasActive)
 			{
 				g_windowEnterMs = now;
-				Log::Write("choking");
+				Log::Write("DeadEyeFix: choking");
 			}
 			else if (!active && g_wasActive)
 			{
-				Log::Write("choke released after {:.0f}ms",
+				Log::Write("DeadEyeFix: choke released after {:.0f}ms",
 					now - g_windowEnterMs);
 			}
 			g_wasActive = active;

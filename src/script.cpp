@@ -3,7 +3,7 @@
 	nothing for a user to toggle.
 
 	Both FishingFix::Tick() and DeadEyeFix::OnTick() apply the SAME
-	confirmed mechanism: a precise ~3ms busy-wait, called directly from
+	confirmed mechanism: a precise ~4ms busy-wait, called directly from
 	this ASI's own script tick, gated on their own respective "is the
 	race window currently open" check -- fishing's own phase field for
 	one, the Dead Eye ability object's +302 byte for the other.

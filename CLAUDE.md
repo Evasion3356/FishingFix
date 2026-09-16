@@ -49,7 +49,7 @@ free to just set a flag.
 `src/FishingFix.cpp`'s `Tick()` (called once per script tick from
 `ScriptMain`, see `script.cpp`) inserts a precise busy-wait
 (`PreciseWaitMs`, via `QueryPerformanceCounter`, tuned empirically to
-`kDelayMs = 3.0`) whenever the local player, or any nearby ped (within
+`kDelayMs = 4.0`) whenever the local player, or any nearby ped (within
 50m) also running the fishing task -- a companion fishing alongside the
 player -- is in the task's phase 0-4 pre-commit window. This gives the
 task's worker thread a deliberate window to finish its update before
@@ -211,9 +211,9 @@ resurrecting per-native hooking is ever needed again, `../PokerCheat`/
   high 32 bits are not part of the VM's data model for a plain int/float
   field and carry unrelated leftover noise -- see "History" above for
   what happens if this gets missed again.
-- `kDelayMs = 3.0` was tuned empirically on this session's hardware/build
-  combination (worked reliably at 2ms and 3ms; failed at 0.5ms in
-  practice, though the true minimum was never pinned down exactly). If
+- `kDelayMs = 4.0` was tuned empirically on this session's hardware/build
+  combination after 3ms still showed occasional failures (2ms and 3ms
+  had worked in earlier testing; 0.5ms failed in practice). If
   it stops being reliable on different hardware, this is the first knob
   to revisit -- consider making it adaptive (e.g. scaling with observed
   frame time) rather than a fixed constant if a single value ever proves
