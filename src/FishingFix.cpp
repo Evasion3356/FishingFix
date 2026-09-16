@@ -128,6 +128,7 @@ namespace FishingFix
 		constexpr std::uintptr_t kTaskManagerOffset = 0x170;
 		constexpr int kFishingTaskId = 0x271;
 		constexpr std::uintptr_t kFishingTaskPhaseOffset = 0xF8;
+		constexpr float kMaxDistanceToCheckNpcs = 50.0f;
 
 		bool TryReadFishingPhaseFromPed(std::uint64_t ped, int& outPhase)
 		{
@@ -161,6 +162,18 @@ namespace FishingFix
 			if (!GameMemory::IsScriptRunning(kFishingCoreScriptHash))
 				return false;
 
+			// The local player is the overwhelmingly common case. Check it
+			// before touching the pool so normal casts short-circuit without
+			// decrypting or validating the raw ped pool.
+			std::uint64_t localPlayerPed = GameMemory::ResolvePlayerPed(0);
+			if (localPlayerPed)
+			{
+				int phase;
+				if (TryReadFishingPhaseFromPed(localPlayerPed, phase)
+					&& IsPhaseInPreCommitWindow(phase))
+					return true;
+			}
+
 			GameMemory::FwBasePool* pedPool = GameMemory::GetPedPool();
 			if (!GameMemory::LooksLikeValidPointer(reinterpret_cast<std::uint64_t>(pedPool)))
 				return false;
@@ -168,7 +181,12 @@ namespace FishingFix
 			for (std::uint32_t i = 0; i < pedPool->size; ++i)
 			{
 				std::uint64_t pedPtr = GameMemory::GetPoolEntry(pedPool, i);
-				if (!pedPtr)
+				if (!pedPtr || pedPtr == localPlayerPed)
+					continue;
+
+				if (localPlayerPed
+					&& !GameMemory::IsPedWithinDistance(
+						pedPtr, localPlayerPed, kMaxDistanceToCheckNpcs))
 					continue;
 
 				int phase;
@@ -197,11 +215,11 @@ namespace FishingFix
 		if (attempting && !g_wasAttempting)
 		{
 			g_windowEnterMs = GameMemory::NowMs();
-			Log::Write("FishingFix: DELAY WINDOW ENTER");
+			Log::Write("choking");
 		}
 		else if (!attempting && g_wasAttempting)
 		{
-			Log::Write("FishingFix: DELAY WINDOW EXIT after {:.0f}ms",
+			Log::Write("choke released after {:.0f}ms",
 				GameMemory::NowMs() - g_windowEnterMs);
 		}
 		g_wasAttempting = attempting;

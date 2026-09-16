@@ -57,6 +57,9 @@ namespace DeadEyeFix
 
 		constexpr int kLocalPlayerIndex = 0;
 
+		std::uint64_t g_cachedPlayerPed = 0;
+		std::uint64_t g_cachedAbility = 0;
+
 		// Mirrors the exact tagged-pointer resolution _GET_PLAYER_DEAD_EYE
 		// and _ACTIVATE_DEAD_EYE both perform -- see header comment.
 		// Returns 0 if any stage is invalid.
@@ -64,14 +67,35 @@ namespace DeadEyeFix
 		{
 			std::uint64_t ped = GameMemory::ResolvePlayerPed(playerIndex);
 			if (!ped)
+			{
+				g_cachedPlayerPed = 0;
+				g_cachedAbility = 0;
 				return 0;
+			}
 
-			std::uint64_t poolEntry = GameMemory::ResolvePedLinkedPoolEntry(ped, kPoolEntryFieldOffset);
+			if (ped == g_cachedPlayerPed && g_cachedAbility)
+				return g_cachedAbility;
+
+			std::uint64_t poolEntry = GameMemory::ResolvePedLinkedPoolEntry(
+				ped, kPoolEntryFieldOffset);
 			if (!poolEntry)
+			{
+				g_cachedPlayerPed = ped;
+				g_cachedAbility = 0;
 				return 0;
+			}
 
 			std::uint64_t ability = *reinterpret_cast<std::uint64_t*>(poolEntry + kAbilityPointerOffset);
-			return GameMemory::LooksLikeValidPointer(ability) ? ability : 0;
+			if (!GameMemory::LooksLikeValidPointer(ability))
+			{
+				g_cachedPlayerPed = ped;
+				g_cachedAbility = 0;
+				return 0;
+			}
+
+			g_cachedPlayerPed = ped;
+			g_cachedAbility = ability;
+			return ability;
 		}
 
 		bool IsDeadEyeActive()
@@ -93,11 +117,11 @@ namespace DeadEyeFix
 			if (active && !g_wasActive)
 			{
 				g_windowEnterMs = now;
-				Log::Write("DeadEyeFix: DEAD EYE ACTIVE -- choking");
+				Log::Write("choking");
 			}
 			else if (!active && g_wasActive)
 			{
-				Log::Write("DeadEyeFix: DEAD EYE INACTIVE -- choke released after {:.0f}ms",
+				Log::Write("choke released after {:.0f}ms",
 					now - g_windowEnterMs);
 			}
 			g_wasActive = active;

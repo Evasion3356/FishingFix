@@ -17,6 +17,7 @@ namespace GameMemory
 		constexpr const char* kResolvePlayerPedPattern = "48 89 5C 24 08 57 48 83 EC 20 33 DB 38 1D ? ? ? ? 74 26 E8 ? ? ? ? 48 8B F8 48 85 C0 74 64";
 
 		constexpr std::uintptr_t kPedPoolIndexOffset = 0x9C;
+		constexpr std::uintptr_t kEntityPositionOffset = 0x70;
 		constexpr std::uintptr_t kPoolEntryStride = 0x148;
 
 		using FindTaskByIdFn = std::uint64_t(__fastcall*)(std::uint64_t taskManager, int taskId);
@@ -317,6 +318,23 @@ namespace GameMemory
 
 		std::uint64_t task = g_pointers.findTaskById(taskManager, taskId);
 		return LooksLikeValidPointer(task) ? task : 0;
+	}
+
+	bool IsPedWithinDistance(std::uint64_t ped, std::uint64_t otherPed, float maxDistance)
+	{
+		if (!Init()
+			|| !LooksLikeValidPointer(ped)
+			|| !LooksLikeValidPointer(otherPed)
+			|| maxDistance < 0.0f)
+			return false;
+
+		const float* position = reinterpret_cast<const float*>(ped + kEntityPositionOffset);
+		const float* otherPosition = reinterpret_cast<const float*>(otherPed + kEntityPositionOffset);
+		float dx = position[0] - otherPosition[0];
+		float dy = position[1] - otherPosition[1];
+		float dz = position[2] - otherPosition[2];
+		float distanceSquared = dx * dx + dy * dy + dz * dz;
+		return distanceSquared <= maxDistance * maxDistance;
 	}
 
 	double NowMs()

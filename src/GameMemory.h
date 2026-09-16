@@ -48,6 +48,7 @@ namespace GameMemory
 	std::uint64_t ResolvePlayerPed(int playerIndex);
 	std::uint64_t ResolvePedLinkedPoolEntry(std::uint64_t ped, std::uintptr_t entryFieldOffset);
 	std::uint64_t FindTaskById(std::uint64_t taskManager, int taskId);
+	bool IsPedWithinDistance(std::uint64_t ped, std::uint64_t otherPed, float maxDistance);
 
 	double NowMs();
 	void PreciseWaitMs(double ms);
