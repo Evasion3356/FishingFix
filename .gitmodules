@@ -1,0 +1,6 @@
+[submodule "external/ScriptHookSDK"]
+	path = external/ScriptHookSDK
+	url = https://github.com/Evasion3356/ScriptHookRDR2-SDK.git
+[submodule "external/spdlog"]
+	path = external/spdlog
+	url = https://github.com/gabime/spdlog.git

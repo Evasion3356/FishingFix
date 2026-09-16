@@ -3,7 +3,7 @@
 	same pattern as PokerCheat/BlackjackCheat's own main.cpp.
 */
 
-#include "..\..\ScriptHookSDK\inc\main.h"
+#include "..\external\ScriptHookSDK\inc\main.h"
 #include "script.h"
 
 BOOL APIENTRY DllMain(HMODULE hInstance, DWORD reason, LPVOID lpReserved)
