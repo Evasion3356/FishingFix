@@ -33,15 +33,13 @@
 	simply because there are more read attempts per second and less real
 	time between them for the worker thread to land its update first.
 
-	THE FIX: a precise ~3ms busy-wait (PreciseWaitMs, tuned to 3ms -- see
-	kDelayMs), gated on whether ANY relevant ped -- the local player, or
-	a nearby ped also running the fishing task (a companion fishing
-	alongside the player) -- currently has phase 0-4 (see kPhaseMin/
-	kPhaseMax below), called directly from ScriptMain's own loop (see
-	script.cpp) once per THIS ASI's script tick. This gives the fishing
-	task's worker thread a deliberate window to finish its own update
-	before script next reads it, every time, instead of relying on
-	incidental overhead.
+	THE FIX: a precise ~3ms busy-wait (tuned to 3ms -- see kDelayMs),
+	gated on fishing_core running and any ped having the main fishing
+	task's phase in 0-4 (see kPhaseMin/kPhaseMax below), called directly
+	from ScriptMain's own loop (see script.cpp) once per THIS ASI's
+	script tick. This gives the fishing task's worker thread a deliberate
+	window to finish its own update before script next reads it, every
+	time, instead of relying on incidental overhead.
 
 	This originally worked by hooking TASK::_GET_TASK_FISHING itself
 	(scoped to fishing_core's own script via NativeHook) and inserting the
@@ -55,28 +53,29 @@
 	the native call itself, so the hook (and the whole per-script native-
 	hooking mechanism it needed) was removed as unnecessary.
 
-	HOW PHASE IS READ (rewritten from the original global-memory read --
-	see "History" below for why): this calls TASK::_GET_TASK_FISHING
-	(hash 0xF3735ACD11ACD500, declared in the ScriptHookRDR2 SDK's own
-	natives.h as AI::_0xF3735ACD11ACD500(Any ped, Any* outStruct) -> BOOL
-	-- "AI" is just that SDK's own category label for the hash, unrelated
-	to the decompiler's "TASK::" alias for the same native) DIRECTLY,
-	with our own local buffer, for the player AND for every nearby ped
-	within kMaxDistance. This is a plain native CALL, not a hook/patch --
-	consistent with this project no longer touching any native's table.
-	Confirmed against the 1491.50 decompile (fishing_core.c line 3418:
-	`Global_1902822.f_35 = TASK::_GET_TASK_FISHING(PLAYER::PLAYER_PED_ID(),
-	&(Global_1902822.f_5));`) and confirmed safe to call on any ped,
-	fishing or not, every tick -- it's a pure reporter, no side effects.
+	HOW PHASE IS READ: this mirrors TASK::_GET_TASK_FISHING's internal
+	pointer walk directly instead of calling the native every tick. The
+	native's real handler for build 1491.50 is sub_141077798. Peds are
+	read by iterating the raw ped pool directly, so there is no per-ped
+	script-handle native call. GameMemory signature-resolves the shared
+	runtime pointers used below at startup. The successful fishing task
+	path is:
 
-	The out-struct's field 0 is the phase int. RAGE script "Any" out-
-	params are uniform 8-byte VM slots, but script bytecode only ever
-	reads/writes the LOW 32 bits of each slot -- the high 32 bits are
-	never touched by the VM at all, so whatever bit pattern sits there is
-	leftover from some earlier, unrelated use of that memory. Confirmed
-	live: field 0's high half was seen independently oscillating on a
-	~10ms period totally unrelated to the real phase transitions in that
-	same field's low half. Only ever read the low 32 bits.
+		rawPoolIndex = *(DWORD*)(ped + 0x9C) & 0x1FFFF
+		poolIndex = rawPoolIndex - dword_1439ECE40
+		poolEntry = *(QWORD*)(qword_1439ECE48 + poolIndex * 0x148 + 0xB8) & ~1
+		taskMgr = *(QWORD*)(poolEntry + 0x170)
+		task = sub_142B2EF3C(taskMgr, 0x271)
+		phase = *(DWORD*)(task + 0xF8)
+
+	That final task+0xF8 address is exactly what sub_141E4F060 returns
+	to _GET_TASK_FISHING before the native bulk-copies the task's state
+	into the script out-struct. Reading only the low 32 bits is still
+	important: RAGE script "Any" out-params are uniform 8-byte VM slots,
+	but script bytecode only ever reads/writes the LOW 32 bits of each
+	slot for plain int/float fields; the high 32 bits can contain
+	unrelated leftover noise (confirmed live during the earlier native-
+	call version of this fix).
 
 	PHASE VALUES, confirmed by live testing across a full cast: 0-4 is
 	the pre-commit/preparing-to-cast window (this is where the race
@@ -100,90 +99,53 @@
 	slot's high 32 bits are the unrelated noise described above, so
 	whenever that noise happened to be non-zero, the combined 64-bit
 	comparison would spuriously fail even though the real (low-32) phase
-	was legitimately in range. Switching to a direct native call (a)
-	sidesteps the whole global-offset question, since there's no address
-	to guess or drift, and (b) trivially generalizes to any ped, which is
-	what surfaced the companion-fishing case this file now also covers.
+	was legitimately in range. The follow-up native-call version fixed
+	that and proved this generalized to any ped, which surfaced the
+	companion-fishing case. The current version keeps that any-ped
+	coverage but removes the expensive native call by scanning the raw
+	ped pool and reading the 4-byte phase field directly from the task
+	state object.
 */
 
 #include "FishingFix.h"
+#include "GameMemory.h"
 #include "Log.h"
 
-#include "..\..\ScriptHookSDK\inc\natives.h"
-
-#include <windows.h>
-#include <cstring>
-#include <cmath>
+#include <cstdint>
 
 namespace FishingFix
 {
 	namespace
 	{
-		// A 500ms Sleep() confirmed the theory (dropped the game to ~6
-		// FPS, but the cast succeeded reliably at that rate -- consistent
-		// with the worker thread always having enough real time to finish
-		// its update before script reads it). Now narrowing down: 0.5ms
-		// is far too short for Sleep()'s own scheduler granularity
-		// (typically 1-15ms -- it would either round up to a full
-		// millisecond-plus or, on some systems, effectively do nothing),
-		// so this is a real busy-wait against QueryPerformanceCounter
-		// instead, precise well below 1ms.
+		// Same value confirmed live for FishingFix and reused by DeadEyeFix.
 		constexpr double kDelayMs = 3.0;
-
-		double g_qpcFrequency = 0.0;
-
-		void PreciseWaitMs(double ms)
-		{
-			if (g_qpcFrequency == 0.0)
-			{
-				LARGE_INTEGER freq;
-				QueryPerformanceFrequency(&freq);
-				g_qpcFrequency = static_cast<double>(freq.QuadPart);
-			}
-
-			LARGE_INTEGER start;
-			QueryPerformanceCounter(&start);
-			double targetTicks = (ms / 1000.0) * g_qpcFrequency;
-
-			LARGE_INTEGER now;
-			do
-			{
-				QueryPerformanceCounter(&now);
-			} while (static_cast<double>(now.QuadPart - start.QuadPart) < targetTicks);
-		}
-
-		// See this file's header comment: the true out-struct size was
-		// never pinned down statically (the decompile only shows the
-		// handful of sub-fields the SCRIPT happens to read back, not the
-		// struct's real extent) -- 2048 slots (16KB) is a generous upper
-		// bound confirmed safe live, well past every field index seen in
-		// fishing_core.c (whose caller passes this struct as
-		// uLocal_14.f_3089 out of a frame whose highest local is
-		// uLocal_4608).
-		constexpr size_t kBufSlots = 2048;
 
 		constexpr int kPhaseMin = 0;
 		constexpr int kPhaseMax = 4;
+		constexpr std::uint32_t kFishingCoreScriptHash = GameMemory::Joaat("fishing_core");
 
-		// How far from the player to look for a companion/NPC also
-		// running the fishing task. Fishing partners stand right next to
-		// the player in practice; this is generous headroom past that.
-		constexpr float kMaxDistanceToCheckNpcs = 50.0f;
-		constexpr int kMaxPedCandidates = 1024;
+		constexpr std::uintptr_t kFishingTaskTreeOffset = 0xB8;
+		constexpr std::uintptr_t kTaskManagerOffset = 0x170;
+		constexpr int kFishingTaskId = 0x271;
+		constexpr std::uintptr_t kFishingTaskPhaseOffset = 0xF8;
 
-		// AI::_0xF3735ACD11ACD500 == TASK::_GET_TASK_FISHING. See this
-		// file's header comment for the hash/namespace note.
-		bool GetFishingPhase(Ped ped, int& outPhase)
+		bool TryReadFishingPhaseFromPed(std::uint64_t ped, int& outPhase)
 		{
-			UINT64 buf[kBufSlots];
-			std::memset(buf, 0, sizeof(buf));
-
-			BOOL hasTask = AI::_0xF3735ACD11ACD500(static_cast<Any>(ped), reinterpret_cast<Any*>(buf));
-			if (!hasTask)
+			std::uint64_t poolEntry = GameMemory::ResolvePedLinkedPoolEntry(ped, kFishingTaskTreeOffset);
+			if (!poolEntry)
 				return false;
 
-			UINT32 lo = static_cast<UINT32>(buf[0] & 0xFFFFFFFFu);
-			std::memcpy(&outPhase, &lo, sizeof(outPhase));
+			std::uint64_t taskManager = *reinterpret_cast<std::uint64_t*>(poolEntry + kTaskManagerOffset);
+			if (!GameMemory::LooksLikeValidPointer(taskManager))
+				return false;
+
+			// This validates the task slot cheaply without copying the
+			// native's full script-facing fishing state buffer.
+			std::uint64_t task = GameMemory::FindTaskById(taskManager, kFishingTaskId);
+			if (!task)
+				return false;
+
+			outPhase = *reinterpret_cast<int*>(task + kFishingTaskPhaseOffset);
 			return true;
 		}
 
@@ -192,41 +154,28 @@ namespace FishingFix
 			return phase >= kPhaseMin && phase <= kPhaseMax;
 		}
 
-		float DistanceBetween(const Vector3& a, const Vector3& b)
-		{
-			float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
-			return std::sqrt(dx * dx + dy * dy + dz * dz);
-		}
-
-		// True if the local player, or any nearby ped also running the
-		// fishing task (a companion fishing alongside the player), is
-		// currently in the pre-commit/waggling window.
+		// True if fishing_core is active and any ped currently has the
+		// main fishing task in the pre-commit/waggling window.
 		bool IsAnyoneAttemptingCast()
 		{
-			Ped playerPed = PLAYER::PLAYER_PED_ID();
+			if (!GameMemory::IsScriptRunning(kFishingCoreScriptHash))
+				return false;
 
-			int phase;
-			if (GetFishingPhase(playerPed, phase) && IsPhaseInPreCommitWindow(phase))
-				return true;
+			GameMemory::FwBasePool* pedPool = GameMemory::GetPedPool();
+			if (!GameMemory::LooksLikeValidPointer(reinterpret_cast<std::uint64_t>(pedPool)))
+				return false;
 
-			Vector3 playerCoords = ENTITY::GET_ENTITY_COORDS(playerPed, true, false);
-
-			static int pedArr[kMaxPedCandidates];
-			int count = worldGetAllPeds(pedArr, kMaxPedCandidates);
-			for (int i = 0; i < count; ++i)
+			for (std::uint32_t i = 0; i < pedPool->size; ++i)
 			{
-				Ped ped = static_cast<Ped>(pedArr[i]);
-				if (ped == playerPed)
-					continue;
-				if (!ENTITY::DOES_ENTITY_EXIST(ped) || ENTITY::IS_ENTITY_DEAD(ped))
+				std::uint64_t pedPtr = GameMemory::GetPoolEntry(pedPool, i);
+				if (!pedPtr)
 					continue;
 
-				Vector3 coords = ENTITY::GET_ENTITY_COORDS(ped, true, false);
-				if (DistanceBetween(coords, playerCoords) > kMaxDistanceToCheckNpcs)
+				int phase;
+				if (!TryReadFishingPhaseFromPed(pedPtr, phase) || !IsPhaseInPreCommitWindow(phase))
 					continue;
 
-				if (GetFishingPhase(ped, phase) && IsPhaseInPreCommitWindow(phase))
-					return true;
+				return true;
 			}
 
 			return false;
@@ -234,39 +183,30 @@ namespace FishingFix
 
 		bool g_wasAttempting = false;
 		double g_windowEnterMs = 0.0;
+	}
 
-		double NowMs()
-		{
-			if (g_qpcFrequency == 0.0)
-			{
-				LARGE_INTEGER freq;
-				QueryPerformanceFrequency(&freq);
-				g_qpcFrequency = static_cast<double>(freq.QuadPart);
-			}
-			LARGE_INTEGER now;
-			QueryPerformanceCounter(&now);
-			return (static_cast<double>(now.QuadPart) / g_qpcFrequency) * 1000.0;
-		}
+	void Init()
+	{
+		GameMemory::Init();
 	}
 
 	void Tick()
 	{
 		bool attempting = IsAnyoneAttemptingCast();
-		double now = NowMs();
 
 		if (attempting && !g_wasAttempting)
 		{
-			g_windowEnterMs = now;
+			g_windowEnterMs = GameMemory::NowMs();
 			Log::Write("FishingFix: DELAY WINDOW ENTER");
 		}
 		else if (!attempting && g_wasAttempting)
 		{
 			Log::Write("FishingFix: DELAY WINDOW EXIT after {:.0f}ms",
-				now - g_windowEnterMs);
+				GameMemory::NowMs() - g_windowEnterMs);
 		}
 		g_wasAttempting = attempting;
 
 		if (attempting)
-			PreciseWaitMs(kDelayMs);
+			GameMemory::PreciseWaitMs(kDelayMs);
 	}
 }

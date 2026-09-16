@@ -2,7 +2,7 @@
 	Entry point loop. No menu -- both fixes below are passive, always on,
 	nothing for a user to toggle.
 
-	Both FishingFix::Tick() and DeadEyeDiag::OnTick() apply the SAME
+	Both FishingFix::Tick() and DeadEyeFix::OnTick() apply the SAME
 	confirmed mechanism: a precise ~3ms busy-wait, called directly from
 	this ASI's own script tick, gated on their own respective "is the
 	race window currently open" check -- fishing's own phase field for
@@ -20,17 +20,18 @@
 
 #include "script.h"
 #include "FishingFix.h"
-#include "DeadEyeDiag.h"
+#include "DeadEyeFix.h"
 #include "Log.h"
 
 void ScriptMain()
 {
 	Log::Write("FishingFix started");
+	FishingFix::Init();
 
 	while (true)
 	{
 		FishingFix::Tick();
-		DeadEyeDiag::OnTick();
+		DeadEyeFix::OnTick();
 		WAIT(0);
 	}
 }

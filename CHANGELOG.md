@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 ## [1.1] - 2026-09-13
 
 ### Added
-- `DeadEyeDiag`: the same confirmed script-thread choke applied to Dead
+- `DeadEyeFix`: the same confirmed script-thread choke applied to Dead
   Eye's active window, resolving the local player's ability object via
   the pointer chain shared by `_GET_PLAYER_DEAD_EYE`/`_ACTIVATE_DEAD_EYE`
   and busy-waiting while the "Dead Eye active" flag is set.
@@ -30,7 +30,7 @@ All notable changes to this project are documented in this file.
   only by their own phase/active check.
 - The now-dead per-script native-hooking machinery (`NativeHook`,
   `PatternScan`, the vendored `external/RDR-Classes` tree) and
-  `DeadEyeDiag`'s F9 mark-log hotkey.
+  `DeadEyeFix`'s F9 mark-log hotkey.
 
 ## [1.0] - 2026-09-12
 

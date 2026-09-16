@@ -14,7 +14,8 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\script.cpp" />
     <ClCompile Include="src\FishingFix.cpp" />
-    <ClCompile Include="src\DeadEyeDiag.cpp" />
+    <ClCompile Include="src\DeadEyeFix.cpp" />
+    <ClCompile Include="src\GameMemory.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\ScriptHookSDK\inc\main.h" />
@@ -24,7 +25,8 @@
     <ClInclude Include="src\script.h" />
     <ClInclude Include="src\Log.h" />
     <ClInclude Include="src\FishingFix.h" />
-    <ClInclude Include="src\DeadEyeDiag.h" />
+    <ClInclude Include="src\DeadEyeFix.h" />
+    <ClInclude Include="src\GameMemory.h" />
     <ClInclude Include="external\spdlog\include\spdlog\spdlog.h" />
     <ClInclude Include="external\spdlog\include\spdlog\sinks\basic_file_sink.h" />
   </ItemGroup>

@@ -12,9 +12,9 @@ ScriptHookRDR2 + native C++ toolchain).
 NPCs. See `src/FishingFix.cpp`'s header comment for the full root-cause
 trace, including a later regression (legendary-fish casts waggling
 again) and the live-diagnostic investigation that found and fixed it.
-Also carries `DeadEyeDiag`, a second instance of the same confirmed
+Also carries `DeadEyeFix`, a second instance of the same confirmed
 mechanism applied to Dead Eye's active window (see
-`src/DeadEyeDiag.cpp`).
+`src/DeadEyeFix.cpp`).
 
 ## Root cause
 
@@ -69,20 +69,20 @@ itself. The hook (and the per-script native-hooking machinery it
 needed, including the vendored `external/RDR-Classes` tree) was removed
 as a result -- this project no longer patches any native's table.
 
-**How the phase is read** (rewritten from an earlier global-memory read
--- see "History" below): `TASK::_GET_TASK_FISHING` is called DIRECTLY,
-with our own local buffer, for the player and for every nearby ped --
-declared in the ScriptHookRDR2 SDK's own `natives.h` as
-`AI::_0xF3735ACD11ACD500(Any ped, Any* outStruct) -> BOOL` (`AI` is just
-that SDK's own category label for the hash; unrelated to the
-decompiler's `TASK::` alias for the same native). This is a plain native
-CALL, not a hook/patch, and sidesteps needing any script-global address
-at all -- it also trivially generalizes to any ped, which is what
-surfaced the companion-fishing case. Confirmed safe to call on any ped,
-fishing or not, every tick: it's a pure reporter, no side effects.
+**How the phase is read** (rewritten from both the old script-global
+reader and the later native-call reader -- see "History" below): this
+now mirrors `TASK::_GET_TASK_FISHING`'s true-return pointer walk directly
+instead of calling the native every tick. `GameMemory.cpp` resolves the
+shared script-thread, ped-pool, linked-task-pool, and task-lookup
+pointers once at startup via HorseMenu-style signatures. `FishingFix.cpp`
+then checks that `fishing_core` is running, scans the raw ped pool
+(including the local player and companion/NPC peds), resolves each ped's
+main fishing task (`0x271`), and reads only the 4-byte phase at
+`task + 0xF8`.
 
-The out-struct's field 0 (as a plain 4-byte int -- see the low/high-bits
-note below) is the phase. Confirmed by live testing across a full cast:
+That task field is exactly what sub_141E4F060 returns to
+`_GET_TASK_FISHING` before the native bulk-copies the task's state into
+the script out-struct. Confirmed by live testing across a full cast:
 **0-4** is the pre-commit/preparing-to-cast window (this is where the
 race happens -- waggling means bouncing within this range instead of
 reaching 6), **6** is "fishing" (rod out, waiting for a bite), **7** is
@@ -98,10 +98,9 @@ the real phase transitions in that same field's low half. Only ever
 read the low 32 bits of a field -- ignoring this is exactly what broke
 the previous version of this fix (see "History").
 
-`DeadEyeDiag.cpp` resolves its own ability-object pointer via a small
-chain of raw reads off a statically-known (IDA-derived, ASLR-rebased)
-function and fields -- see that file's header comment; it doesn't call
-this native or read any script global.
+`DeadEyeFix.cpp` resolves its own ability-object pointer via
+`GameMemory`'s shared signature-resolved player/pool helpers; it doesn't
+call this native or read any script global.
 
 ### History: the global-memory version of this fix, and why it broke
 
@@ -171,12 +170,17 @@ Runtime log: `<game folder>\FishingFix.log`.
 
 - `src/main.cpp` -- `DllMain`, registers `ScriptMain`.
 - `src/script.h/.cpp` -- `ScriptMain`'s loop: `FishingFix::Tick()`, then
-  `DeadEyeDiag::OnTick()`, then `WAIT(0)`, nothing else. No menu, no
+  `DeadEyeFix::OnTick()`, then `WAIT(0)`, nothing else. No menu, no
   keyboard handler -- always on.
 - `src/FishingFix.h/.cpp` -- the actual fix. **Its `.cpp` header comment
   has the full root-cause trace** -- read it before changing the delay
   or the phase gating.
-- `src/DeadEyeDiag.h/.cpp` -- the same confirmed mechanism applied to
+- `src/GameMemory.h/.cpp` -- shared one-time signature resolver and raw
+  memory helpers used by both FishingFix and DeadEyeFix: script-thread
+  checks, ped pool iteration, linked ped pool entry resolution,
+  `sub_142B2EF3C` task lookup, local-player ped resolution,
+  module-relative signature logging, and QPC busy-wait timing.
+- `src/DeadEyeFix.h/.cpp` -- the same confirmed mechanism applied to
   Dead Eye's active window. See that file's header comment for the
   ability-pointer derivation.
 - `src/Log.h` -- spdlog file logger, adapted from BlackjackCheat's own
@@ -196,15 +200,12 @@ resurrecting per-native hooking is ever needed again, `../PokerCheat`/
 
 ## If a future RDR2 build changes this
 
-- Calling `AI::_0xF3735ACD11ACD500` (`TASK::_GET_TASK_FISHING`) directly
-  means there's no script-global address to re-derive if a content patch
-  ships -- the native itself is the source of truth, not a memory
-  offset. What COULD change in a future build is the phase VALUES
-  themselves (currently 0-4 pre-commit, 6 fishing, 7 caught, 12 reeling).
-  If the choke stops firing reliably, re-confirm these live rather than
-  assuming they still hold: log the out-struct's field 0 (low 32 bits
-  only -- see "How the phase is read" above) across a full cast and
-  watch the transition sequence, the same technique the removed
+- The current fix reads raw task memory through signatures instead of
+  calling `AI::_0xF3735ACD11ACD500` (`TASK::_GET_TASK_FISHING`) every
+  tick. If a content patch ships, first check whether `GameMemory.cpp`'s
+  signatures still resolve; then re-confirm phase values (currently 0-4
+  pre-commit, 6 fishing, 7 caught, 12 reeling) by logging the low 32 bits
+  at `task + 0xF8` across a full cast, the same technique the removed
   `CastMemDiag`/`TaskFishingDiag` diagnostics used.
 - Only ever read the LOW 32 bits of any field in the out-struct. The
   high 32 bits are not part of the VM's data model for a plain int/float
