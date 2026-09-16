@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2] - 2026-09-15
+
+### Added
+- Release metadata file so the project exposes a canonical release version.
+
+### Changed
+- Finalized the confirmed cast-race and Dead Eye fixes into the mainline
+  release, keeping the delay in `ScriptMain`'s tick loop and removing the
+  legacy native-hooking scaffolding.
+- Updated the project notes and release summary to reflect the confirmed raw
+  task-memory reader, the 0-4 pre-commit gate, and the local/companion NPC
+  coverage.
+
 ## [1.1] - 2026-09-13
 
 ### Added
