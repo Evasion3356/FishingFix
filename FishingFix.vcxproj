@@ -62,9 +62,6 @@
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  <PropertyGroup Label="UserMacros">
-    <GameDir>E:\SteamLibrary\steamapps\common\Red Dead Redemption 2</GameDir>
-  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <TargetExt>.asi</TargetExt>
@@ -99,8 +96,10 @@
       <AdditionalOptions>external\ScriptHookSDK\lib\ScriptHookRDR2.lib %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(TargetPath)" "$(GameDir)\$(TargetFileName)"</Command>
-      <Message>Deploying $(TargetFileName) to $(GameDir)</Message>
+      <Command>for /f "delims=" %%G in ('powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)BuildTools\Find-RDR2GameDir.ps1"') do set "GAMEDIR=%%G"
+if not defined GAMEDIR exit /b 1
+copy /Y "$(TargetPath)" "%GAMEDIR%\$(TargetFileName)"</Command>
+      <Message>Deploying $(TargetFileName) (auto-locating RDR2 install dir)</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -129,9 +128,11 @@
       <AdditionalOptions>external\ScriptHookSDK\lib\ScriptHookRDR2.lib %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(TargetPath)" "$(GameDir)\$(TargetFileName)"
-copy /Y "$(TargetDir)$(TargetName).pdb" "$(GameDir)\$(TargetName).pdb"</Command>
-      <Message>Deploying $(TargetFileName) + PDB to $(GameDir)</Message>
+      <Command>for /f "delims=" %%G in ('powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)BuildTools\Find-RDR2GameDir.ps1"') do set "GAMEDIR=%%G"
+if not defined GAMEDIR exit /b 1
+copy /Y "$(TargetPath)" "%GAMEDIR%\$(TargetFileName)"
+copy /Y "$(TargetDir)$(TargetName).pdb" "%GAMEDIR%\$(TargetName).pdb"</Command>
+      <Message>Deploying $(TargetFileName) + PDB (auto-locating RDR2 install dir)</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
