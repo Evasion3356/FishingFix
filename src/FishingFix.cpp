@@ -111,7 +111,9 @@
 #include "GameMemory.h"
 #include "Log.h"
 
+#include <array>
 #include <cstdint>
+#include <cstddef>
 
 namespace FishingFix
 {
@@ -129,6 +131,11 @@ namespace FishingFix
 		constexpr int kFishingTaskId = 0x271;
 		constexpr std::uintptr_t kFishingTaskPhaseOffset = 0xF8;
 		constexpr float kMaxDistanceToCheckNpcs = 50.0f;
+		constexpr double kNpcDiscoveryIntervalMs = 1000.0;
+		constexpr std::size_t kMaxCachedNpcFishingPeds = 8;
+
+		std::array<std::uint64_t, kMaxCachedNpcFishingPeds> g_cachedNpcFishingPeds{};
+		double g_nextNpcDiscoveryMs = 0.0;
 
 		bool TryReadFishingPhaseFromPed(std::uint64_t ped, int& outPhase)
 		{
@@ -155,12 +162,106 @@ namespace FishingFix
 			return phase >= kPhaseMin && phase <= kPhaseMax;
 		}
 
+		void ClearCachedNpcFishingPeds()
+		{
+			g_cachedNpcFishingPeds.fill(0);
+			g_nextNpcDiscoveryMs = 0.0;
+		}
+
+		void RemoveCachedNpcFishingPed(std::size_t index)
+		{
+			g_cachedNpcFishingPeds[index] = 0;
+		}
+
+		bool IsCachedNpcFishingPed(std::uint64_t ped)
+		{
+			for (std::uint64_t cachedPed : g_cachedNpcFishingPeds)
+			{
+				if (cachedPed == ped)
+					return true;
+			}
+			return false;
+		}
+
+		void CacheNpcFishingPed(std::uint64_t ped)
+		{
+			if (IsCachedNpcFishingPed(ped))
+				return;
+
+			for (std::uint64_t& cachedPed : g_cachedNpcFishingPeds)
+			{
+				if (!cachedPed)
+				{
+					cachedPed = ped;
+					return;
+				}
+			}
+		}
+
+		bool IsNpcNearLocalPlayer(std::uint64_t ped, std::uint64_t localPlayerPed)
+		{
+			return !localPlayerPed
+				|| GameMemory::IsPedWithinDistance(
+					ped, localPlayerPed, kMaxDistanceToCheckNpcs);
+		}
+
+		bool CheckCachedNpcFishingPeds(std::uint64_t localPlayerPed)
+		{
+			bool attempting = false;
+			for (std::size_t i = 0; i < g_cachedNpcFishingPeds.size(); ++i)
+			{
+				std::uint64_t ped = g_cachedNpcFishingPeds[i];
+				if (!ped)
+					continue;
+
+				int phase;
+				if (!IsNpcNearLocalPlayer(ped, localPlayerPed)
+					|| !TryReadFishingPhaseFromPed(ped, phase))
+				{
+					RemoveCachedNpcFishingPed(i);
+					continue;
+				}
+
+				if (IsPhaseInPreCommitWindow(phase))
+					attempting = true;
+			}
+			return attempting;
+		}
+
+		bool DiscoverNpcFishingPeds(
+			GameMemory::FwBasePool* pedPool,
+			std::uint64_t localPlayerPed)
+		{
+			bool attempting = false;
+			for (std::uint32_t i = 0; i < pedPool->size; ++i)
+			{
+				std::uint64_t pedPtr = GameMemory::GetPoolEntry(pedPool, i);
+				if (!pedPtr || pedPtr == localPlayerPed)
+					continue;
+
+				if (!IsNpcNearLocalPlayer(pedPtr, localPlayerPed))
+					continue;
+
+				int phase;
+				if (!TryReadFishingPhaseFromPed(pedPtr, phase))
+					continue;
+
+				CacheNpcFishingPed(pedPtr);
+				if (IsPhaseInPreCommitWindow(phase))
+					attempting = true;
+			}
+			return attempting;
+		}
+
 		// True if fishing_core is active and any ped currently has the
 		// main fishing task in the pre-commit/waggling window.
 		bool IsAnyoneAttemptingCast()
 		{
 			if (!GameMemory::IsScriptRunning(kFishingCoreScriptHash))
+			{
+				ClearCachedNpcFishingPeds();
 				return false;
+			}
 
 			// The local player is the overwhelmingly common case. Check it
 			// before touching the pool so normal casts short-circuit without
@@ -174,29 +275,19 @@ namespace FishingFix
 					return true;
 			}
 
+			if (CheckCachedNpcFishingPeds(localPlayerPed))
+				return true;
+
+			double nowMs = GameMemory::NowMs();
+			if (nowMs < g_nextNpcDiscoveryMs)
+				return false;
+			g_nextNpcDiscoveryMs = nowMs + kNpcDiscoveryIntervalMs;
+
 			GameMemory::FwBasePool* pedPool = GameMemory::GetPedPool();
 			if (!GameMemory::LooksLikeValidPointer(reinterpret_cast<std::uint64_t>(pedPool)))
 				return false;
 
-			for (std::uint32_t i = 0; i < pedPool->size; ++i)
-			{
-				std::uint64_t pedPtr = GameMemory::GetPoolEntry(pedPool, i);
-				if (!pedPtr || pedPtr == localPlayerPed)
-					continue;
-
-				if (localPlayerPed
-					&& !GameMemory::IsPedWithinDistance(
-						pedPtr, localPlayerPed, kMaxDistanceToCheckNpcs))
-					continue;
-
-				int phase;
-				if (!TryReadFishingPhaseFromPed(pedPtr, phase) || !IsPhaseInPreCommitWindow(phase))
-					continue;
-
-				return true;
-			}
-
-			return false;
+			return DiscoverNpcFishingPeds(pedPool, localPlayerPed);
 		}
 
 		bool g_wasAttempting = false;
