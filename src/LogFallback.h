@@ -1,5 +1,6 @@
 /*
-	Picks a writable location for this mod's log file. Vendored identically
+	Picks writable locations for this mod's log file and, via
+	ResolveSettings(), its INI settings file. Vendored identically
 	into every ScriptHookRDR2 ASI project in this repo family (PokerCheat,
 	BlackjackCheat, DominoCheat, ChallengeCheat, FFFCheat, FishingFix,
 	YEEAHSM) -- each is its own git repo, so if you fix a bug here, port the
@@ -10,7 +11,9 @@
 	needs admin rights, and the file can be locked by another process. The
 	spdlog-based loggers used to throw spdlog_ex in that case, and because
 	the first log line could run from DllMain, that exception took the game
-	down during the loading screen with no log to show for it.
+	down during the loading screen with no log to show for it. The INI never
+	crashed (plain file streams don't throw), but in an unwritable folder a
+	player couldn't create or edit it and was stuck on default settings.
 
 	Fallback is %LOCALAPPDATA%\RDR2ASIMods\ (then %TEMP%), not Documents:
 	LocalAppData is always per-user writable and is never redirected to
@@ -136,6 +139,50 @@ namespace LogFallback
 			const std::wstring fallback = fallbackDir + fileName;
 			if (CanAppend(fallback))
 				result.path = fallback;
+		}
+		return result;
+	}
+
+	inline bool FileExists(const std::wstring& path)
+	{
+		const DWORD attributes = GetFileAttributesW(path.c_str());
+		return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+	}
+
+	struct SettingsPaths
+	{
+		std::wstring read;         // where to load settings from
+		std::wstring write;        // where to save them; empty if nothing was writable
+		bool usedFallback = false; // true if preferredDir + fileName couldn't be written
+	};
+
+	// Same idea as Resolve(), for a settings file (the mod's INI) that is
+	// both read and rewritten. If preferredDir + fileName is writable, both
+	// paths are that. Otherwise settings are saved to fallbackDir + fileName
+	// instead, and loaded from there once it exists -- until then from the
+	// preferred file, so a player's existing settings in an unwritable game
+	// folder carry over instead of being reset to defaults.
+	inline SettingsPaths ResolveSettings(const std::wstring& preferredDir, const std::wstring& fileName, const std::wstring& fallbackDir)
+	{
+		SettingsPaths result;
+		const std::wstring preferred = preferredDir + fileName;
+		if (!preferredDir.empty() && CanAppend(preferred))
+		{
+			result.read = preferred;
+			result.write = preferred;
+			return result;
+		}
+
+		result.usedFallback = true;
+		result.read = preferred;
+		if (!fallbackDir.empty())
+		{
+			EnsureDirectory(fallbackDir);
+			const std::wstring fallback = fallbackDir + fileName;
+			if (FileExists(fallback))
+				result.read = fallback;
+			if (CanAppend(fallback))
+				result.write = fallback;
 		}
 		return result;
 	}

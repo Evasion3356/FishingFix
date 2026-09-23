@@ -1,5 +1,5 @@
 /*
-	Tests for LogFallback.h and, when LOGFALLBACK_TEST_SPDLOG is defined, the
+	Tests for LogFallback.h (log file and INI settings file) and, when LOGFALLBACK_TEST_SPDLOG is defined, the
 	spdlog logger factory in Log.h (Log::detail::CreateLogger).
 
 	The scenario: the game folder can't be written (C:\Program Files install,
@@ -150,6 +150,59 @@ namespace
 		Check(resolved.usedFallback && resolved.path.empty(), "Resolve: nothing writable returns an empty path");
 	}
 
+	// Settings file (the mod's INI), which is both read and rewritten.
+	const wchar_t* kSettingsName = L"LogFallbackTest.ini";
+
+	void TestSettingsKeepWritablePreferred(const Scratch& scratch)
+	{
+		const auto paths = LogFallback::ResolveSettings(scratch.root, kSettingsName, scratch.fallback);
+		Check(!paths.usedFallback && paths.read == scratch.root + kSettingsName && paths.write == paths.read,
+			"ResolveSettings: writable folder reads and writes the INI in place");
+	}
+
+	// A read-only INI blocks writing even for an admin, so this case runs
+	// elevated too. The player's existing settings must carry over: read
+	// from the game-folder copy until the fallback copy exists, then from
+	// the fallback copy.
+	void TestSettingsFallBackAndCarryOverExistingIni(const Scratch& scratch)
+	{
+		const std::wstring gameDir = scratch.root + L"readonly_game\\";
+		const std::wstring fallbackDir = scratch.root + L"settings_fallback\\";
+		CreateDirectoryW(gameDir.c_str(), nullptr);
+		const std::wstring existing = gameDir + kSettingsName;
+		std::ofstream(existing) << "[General]\nKey=player-value\n";
+		SetFileAttributesW(existing.c_str(), FILE_ATTRIBUTE_READONLY);
+
+		const auto first = LogFallback::ResolveSettings(gameDir, kSettingsName, fallbackDir);
+		Check(first.usedFallback && first.read == existing && first.write == fallbackDir + kSettingsName,
+			"ResolveSettings: read-only INI is still read, and saving goes to the fallback folder");
+
+		std::ofstream(first.write) << "[General]\nKey=saved-value\n"; // what Config::Reload's rewrite does
+		const auto second = LogFallback::ResolveSettings(gameDir, kSettingsName, fallbackDir);
+		Check(second.read == fallbackDir + kSettingsName && second.write == second.read,
+			"ResolveSettings: once the fallback INI exists, it's the one read");
+
+		SetFileAttributesW(existing.c_str(), FILE_ATTRIBUTE_NORMAL); // let cleanup delete it
+	}
+
+	void TestSettingsFallBackFromAdminOnlyFolder(const Scratch& scratch)
+	{
+		const char* name = "ResolveSettings: C:\\Windows\\System32 (admin-only) saves to the fallback";
+		if (IsElevated())
+			return Skip(name, "running elevated, System32 is writable");
+
+		const std::wstring fallbackDir = scratch.root + L"settings_fallback_admin\\";
+		const auto paths = LogFallback::ResolveSettings(AdminOnlyDirectory(), kSettingsName, fallbackDir);
+		Check(paths.usedFallback && paths.write == fallbackDir + kSettingsName
+			&& !FileExists(AdminOnlyDirectory() + kSettingsName), name);
+	}
+
+	void TestSettingsNothingWritable(const Scratch& scratch)
+	{
+		const auto paths = LogFallback::ResolveSettings(scratch.throughFile, kSettingsName, scratch.throughFile + L"deeper\\");
+		Check(paths.usedFallback && paths.write.empty(), "ResolveSettings: nothing writable leaves the write path empty");
+	}
+
 #ifdef LOGFALLBACK_TEST_SPDLOG
 	// The original failure, reproduced directly: without a fallback, spdlog
 	// throws for a folder the user can't write.
@@ -270,6 +323,10 @@ int main()
 	TestResolveFallsBackFromAdminOnlyFolder(scratch);
 	TestResolveFallsBackFromPathThroughFile(scratch);
 	TestResolveNothingWritable(scratch);
+	TestSettingsKeepWritablePreferred(scratch);
+	TestSettingsFallBackAndCarryOverExistingIni(scratch);
+	TestSettingsFallBackFromAdminOnlyFolder(scratch);
+	TestSettingsNothingWritable(scratch);
 #ifdef LOGFALLBACK_TEST_SPDLOG
 	TestSpdlogThrowsForAdminOnlyFolder();
 	TestLoggerFallsBackFromAdminOnlyFolder(scratch);
