@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3] - 2026-09-23
+
+### Fixed
+- The game no longer risks crashing at startup when `FishingFix.log` can't
+  be written.
+- If the game folder can't be written (e.g. a `C:\Program Files` install,
+  or a read-only/locked log file), the log now goes to
+  `%LOCALAPPDATA%\RDR2ASIMods\FishingFix.log` instead, and its first line
+  names the path that couldn't be used.
+- Companions fishing alongside you: a ped that despawned is no longer read
+  from, since its memory may already have been reused.
+- Dead Eye fix: the Dead Eye state is looked up fresh every frame instead
+  of trusting a cached pointer that could go stale (e.g. after a player
+  model change).
+
+### Changed
+- Nearby fishing NPCs are found by scanning the ped pool once a second
+  instead of every frame.
+
 ## [1.2] - 2026-09-15
 
 ### Added
