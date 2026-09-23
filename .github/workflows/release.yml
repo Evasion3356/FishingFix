@@ -1,0 +1,98 @@
+# Builds the Release .asi and publishes it as a GitHub release.
+#
+# Runs when a version tag (e.g. 1.4) is pushed, or by hand from the Actions
+# tab ("Run workflow") for a tag that already exists. Steps: run every unit
+# test project under tests/, build the Release .asi, take the release notes
+# from the changelog section matching the tag, then create (or refresh) the
+# release with the .asi attached.
+#
+# Vendored into every sibling ASI project; only the env block below differs.
+
+name: Release
+
+on:
+  push:
+    tags: ['[0-9]*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and release (e.g. 1.4)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  PROJECT: FishingFix
+  ASI: bin/Release/FishingFix.asi
+  CHANGELOG: CHANGELOG.md
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          submodules: recursive
+
+      - uses: microsoft/setup-msbuild@v2
+
+      # The projects target v145 (Visual Studio 2026). If the runner image
+      # only has an older Visual Studio, build with its toolset instead.
+      - name: Pick platform toolset
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationVersion
+          $toolset = if ([int]$vs.Split('.')[0] -ge 18) { 'v145' } else { 'v143' }
+          "TOOLSET=$toolset" >> $env:GITHUB_ENV
+          Write-Host "Visual Studio $vs -> PlatformToolset $toolset"
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          $projects = Get-ChildItem tests -Filter *.vcxproj -ErrorAction SilentlyContinue
+          foreach ($project in $projects) {
+            msbuild $project.FullName /p:Configuration=Debug /p:Platform=x64 /p:PlatformToolset=$env:TOOLSET /nologo /v:minimal
+            if ($LASTEXITCODE) { throw "Building $($project.Name) failed" }
+            & (Join-Path bin\Debug "$($project.BaseName).exe")
+            if ($LASTEXITCODE) { throw "$($project.BaseName) failed" }
+          }
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          msbuild "$env:PROJECT.vcxproj" /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=$env:TOOLSET /p:PostBuildEventUseInBuild=false /nologo /v:minimal
+          if ($LASTEXITCODE) { throw "Release build failed" }
+          if (-not (Test-Path $env:ASI)) { throw "$env:ASI was not produced" }
+
+      # Tag 1.4 matches "## [1.4.0]" (or "## [1.4]") in the changelog.
+      - name: Release notes from changelog
+        shell: pwsh
+        run: |
+          $lines = @(Get-Content $env:CHANGELOG)
+          $pattern = '^## \[' + [regex]::Escape($env:TAG) + '(\.0)*\]'
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match $pattern) { $start = $i; break } }
+          if ($start -lt 0) { throw "No '## [$env:TAG]' section in $env:CHANGELOG" }
+          $version = [regex]::Match($lines[$start], '\[([^\]]+)\]').Groups[1].Value
+          $body = for ($i = $start + 1; $i -lt $lines.Count -and $lines[$i] -notmatch '^## '; $i++) { $lines[$i] }
+          (($body -join "`n").Trim()) | Set-Content notes.md -Encoding utf8
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $title = "$env:PROJECT $env:RELEASE_VERSION"
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release edit $env:TAG --title $title --notes-file notes.md
+            gh release upload $env:TAG $env:ASI --clobber
+          } else {
+            gh release create $env:TAG $env:ASI --title $title --notes-file notes.md --verify-tag
+          }
+          if ($LASTEXITCODE) { throw "Publishing the release failed" }
