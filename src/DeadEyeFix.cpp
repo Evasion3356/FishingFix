@@ -57,45 +57,24 @@ namespace DeadEyeFix
 
 		constexpr int kLocalPlayerIndex = 0;
 
-		std::uint64_t g_cachedPlayerPed = 0;
-		std::uint64_t g_cachedAbility = 0;
-
 		// Mirrors the exact tagged-pointer resolution _GET_PLAYER_DEAD_EYE
 		// and _ACTIVATE_DEAD_EYE both perform -- see header comment.
-		// Returns 0 if any stage is invalid.
+		// Returns 0 if any stage is invalid. Re-resolved every tick rather
+		// than cached against the ped pointer: the ability object can be
+		// replaced while the ped pointer stays the same (e.g. a player model
+		// swap), and the walk is only a few pointer reads.
 		std::uint64_t ResolveAbilityPointer(int playerIndex)
 		{
 			std::uint64_t ped = GameMemory::ResolvePlayerPed(playerIndex);
 			if (!ped)
-			{
-				g_cachedPlayerPed = 0;
-				g_cachedAbility = 0;
 				return 0;
-			}
 
-			if (ped == g_cachedPlayerPed && g_cachedAbility)
-				return g_cachedAbility;
-
-			std::uint64_t poolEntry = GameMemory::ResolvePedLinkedPoolEntry(
-				ped, kPoolEntryFieldOffset);
+			std::uint64_t poolEntry = GameMemory::ResolvePedLinkedPoolEntry(ped, kPoolEntryFieldOffset);
 			if (!poolEntry)
-			{
-				g_cachedPlayerPed = ped;
-				g_cachedAbility = 0;
 				return 0;
-			}
 
 			std::uint64_t ability = *reinterpret_cast<std::uint64_t*>(poolEntry + kAbilityPointerOffset);
-			if (!GameMemory::LooksLikeValidPointer(ability))
-			{
-				g_cachedPlayerPed = ped;
-				g_cachedAbility = 0;
-				return 0;
-			}
-
-			g_cachedPlayerPed = ped;
-			g_cachedAbility = ability;
-			return ability;
+			return GameMemory::LooksLikeValidPointer(ability) ? ability : 0;
 		}
 
 		bool IsDeadEyeActive()

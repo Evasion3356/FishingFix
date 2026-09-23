@@ -96,8 +96,9 @@
       <AdditionalOptions>external\ScriptHookSDK\lib\ScriptHookRDR2.lib %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>for /f "delims=" %%G in ('powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)BuildTools\Find-RDR2GameDir.ps1"') do set "GAMEDIR=%%G"
-if not defined GAMEDIR exit /b 1
+      <Command>set "GAMEDIR="
+for /f "delims=" %%G in ('powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)BuildTools\Find-RDR2GameDir.ps1"') do set "GAMEDIR=%%G"
+if not defined GAMEDIR (echo PostBuild : warning DEPLOY01: RDR2 install folder not found -- build OK, deploy skipped. Set RDR2_GAME_DIR to deploy.&amp; exit /b 0)
 copy /Y "$(TargetPath)" "%GAMEDIR%\$(TargetFileName)"</Command>
       <Message>Deploying $(TargetFileName) (auto-locating RDR2 install dir)</Message>
     </PostBuildEvent>
@@ -128,8 +129,9 @@ copy /Y "$(TargetPath)" "%GAMEDIR%\$(TargetFileName)"</Command>
       <AdditionalOptions>external\ScriptHookSDK\lib\ScriptHookRDR2.lib %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>for /f "delims=" %%G in ('powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)BuildTools\Find-RDR2GameDir.ps1"') do set "GAMEDIR=%%G"
-if not defined GAMEDIR exit /b 1
+      <Command>set "GAMEDIR="
+for /f "delims=" %%G in ('powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)BuildTools\Find-RDR2GameDir.ps1"') do set "GAMEDIR=%%G"
+if not defined GAMEDIR (echo PostBuild : warning DEPLOY01: RDR2 install folder not found -- build OK, deploy skipped. Set RDR2_GAME_DIR to deploy.&amp; exit /b 0)
 copy /Y "$(TargetPath)" "%GAMEDIR%\$(TargetFileName)"
 copy /Y "$(TargetDir)$(TargetName).pdb" "%GAMEDIR%\$(TargetName).pdb"</Command>
       <Message>Deploying $(TargetFileName) + PDB (auto-locating RDR2 install dir)</Message>

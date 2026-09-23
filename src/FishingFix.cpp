@@ -134,7 +134,18 @@ namespace FishingFix
 		constexpr double kNpcDiscoveryIntervalMs = 1000.0;
 		constexpr std::size_t kMaxCachedNpcFishingPeds = 8;
 
-		std::array<std::uint64_t, kMaxCachedNpcFishingPeds> g_cachedNpcFishingPeds{};
+		// Ped pointers alone go stale when a ped despawns and its pool slot is
+		// freed or reused, and reading a stale ped means handing the game's
+		// own FindTaskById() a task manager that may already be gone. So the
+		// pool slot is cached alongside the pointer and re-checked against the
+		// pool's own occupancy flags (GameMemory::GetPoolEntry) before use.
+		struct CachedPed
+		{
+			std::uint64_t ped = 0;
+			std::uint32_t poolIndex = 0;
+		};
+
+		std::array<CachedPed, kMaxCachedNpcFishingPeds> g_cachedNpcFishingPeds{};
 		double g_nextNpcDiscoveryMs = 0.0;
 
 		bool TryReadFishingPhaseFromPed(std::uint64_t ped, int& outPhase)
@@ -164,35 +175,35 @@ namespace FishingFix
 
 		void ClearCachedNpcFishingPeds()
 		{
-			g_cachedNpcFishingPeds.fill(0);
+			g_cachedNpcFishingPeds.fill(CachedPed{});
 			g_nextNpcDiscoveryMs = 0.0;
 		}
 
 		void RemoveCachedNpcFishingPed(std::size_t index)
 		{
-			g_cachedNpcFishingPeds[index] = 0;
+			g_cachedNpcFishingPeds[index] = CachedPed{};
 		}
 
 		bool IsCachedNpcFishingPed(std::uint64_t ped)
 		{
-			for (std::uint64_t cachedPed : g_cachedNpcFishingPeds)
+			for (const CachedPed& cached : g_cachedNpcFishingPeds)
 			{
-				if (cachedPed == ped)
+				if (cached.ped == ped)
 					return true;
 			}
 			return false;
 		}
 
-		void CacheNpcFishingPed(std::uint64_t ped)
+		void CacheNpcFishingPed(std::uint64_t ped, std::uint32_t poolIndex)
 		{
 			if (IsCachedNpcFishingPed(ped))
 				return;
 
-			for (std::uint64_t& cachedPed : g_cachedNpcFishingPeds)
+			for (CachedPed& cached : g_cachedNpcFishingPeds)
 			{
-				if (!cachedPed)
+				if (!cached.ped)
 				{
-					cachedPed = ped;
+					cached = CachedPed{ ped, poolIndex };
 					return;
 				}
 			}
@@ -205,17 +216,19 @@ namespace FishingFix
 					ped, localPlayerPed, kMaxDistanceToCheckNpcs);
 		}
 
-		bool CheckCachedNpcFishingPeds(std::uint64_t localPlayerPed)
+		bool CheckCachedNpcFishingPeds(GameMemory::FwBasePool* pedPool, std::uint64_t localPlayerPed)
 		{
 			bool attempting = false;
 			for (std::size_t i = 0; i < g_cachedNpcFishingPeds.size(); ++i)
 			{
-				std::uint64_t ped = g_cachedNpcFishingPeds[i];
-				if (!ped)
+				const CachedPed cached = g_cachedNpcFishingPeds[i];
+				if (!cached.ped)
 					continue;
 
+				const std::uint64_t ped = cached.ped;
 				int phase;
-				if (!IsNpcNearLocalPlayer(ped, localPlayerPed)
+				if (!pedPool || GameMemory::GetPoolEntry(pedPool, cached.poolIndex) != ped
+					|| !IsNpcNearLocalPlayer(ped, localPlayerPed)
 					|| !TryReadFishingPhaseFromPed(ped, phase))
 				{
 					RemoveCachedNpcFishingPed(i);
@@ -246,7 +259,7 @@ namespace FishingFix
 				if (!TryReadFishingPhaseFromPed(pedPtr, phase))
 					continue;
 
-				CacheNpcFishingPed(pedPtr);
+				CacheNpcFishingPed(pedPtr, i);
 				if (IsPhaseInPreCommitWindow(phase))
 					attempting = true;
 			}
@@ -275,17 +288,17 @@ namespace FishingFix
 					return true;
 			}
 
-			if (CheckCachedNpcFishingPeds(localPlayerPed))
+			GameMemory::FwBasePool* pedPool = GameMemory::GetPedPool();
+			if (!GameMemory::LooksLikeValidPointer(reinterpret_cast<std::uint64_t>(pedPool)))
+				pedPool = nullptr;
+
+			if (CheckCachedNpcFishingPeds(pedPool, localPlayerPed))
 				return true;
 
 			double nowMs = GameMemory::NowMs();
-			if (nowMs < g_nextNpcDiscoveryMs)
+			if (!pedPool || nowMs < g_nextNpcDiscoveryMs)
 				return false;
 			g_nextNpcDiscoveryMs = nowMs + kNpcDiscoveryIntervalMs;
-
-			GameMemory::FwBasePool* pedPool = GameMemory::GetPedPool();
-			if (!GameMemory::LooksLikeValidPointer(reinterpret_cast<std::uint64_t>(pedPool)))
-				return false;
 
 			return DiscoverNpcFishingPeds(pedPool, localPlayerPed);
 		}

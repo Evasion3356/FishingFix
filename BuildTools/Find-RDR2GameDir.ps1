@@ -11,7 +11,7 @@
 #
 # Vendored identically into every ScriptHookRDR2 ASI project in this
 # repo family (PokerCheat, BlackjackCheat, DominoCheat, FFFCheat,
-# FishingFix, YEEAHSM) -- each project is its own separate git repo, so
+# FishingFix, YEEAHSM, ChallengeCheat) -- each project is its own separate git repo, so
 # this can't live in one shared location outside any of them. If you fix
 # a bug here, port the same fix to the other projects' copies too.
 

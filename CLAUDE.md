@@ -169,7 +169,22 @@ or the copy fails with a file-in-use error -- check
 requirement is the loaded module being unmapped, not the process being
 gone.
 
-Runtime log: `<game folder>\FishingFix.log`.
+Runtime log: `<game folder>\FishingFix.log` -- or
+`%LOCALAPPDATA%\RDR2ASIMods\FishingFix.log` when the game folder isn't
+writable (e.g. a C:\Program Files install; the file's first line then names
+the rejected path). See `src/LogFallback.h`, vendored identically into every
+sibling project.
+
+`tests/LogFallbackTests.vcxproj` checks that logging falls back to
+`%LOCALAPPDATA%\RDR2ASIMods\` instead of throwing when the game folder can't
+be written (it points the logger at `C:\Windows\System32` -- skipped when run
+elevated -- and at a path through a regular file). Same test, vendored into
+every sibling project:
+
+```
+"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" tests\LogFallbackTests.vcxproj /p:Configuration=Debug /p:Platform=x64 /nologo /v:minimal
+bin\Debug\LogFallbackTests.exe
+```
 
 ## Source layout
 
@@ -191,6 +206,8 @@ Runtime log: `<game folder>\FishingFix.log`.
 - `src/Log.h` -- spdlog file logger, adapted from BlackjackCheat's own
   (see that file's header comment for why it's synchronous in both
   configs -- same DLL_PROCESS_DETACH deadlock risk applies here).
+- `src/LogFallback.h` -- picks a writable log location (see "Runtime log"
+  above).
 - `external/spdlog/` -- vendored copy, copied wholesale from
   BlackjackCheat's own checked-out `external/spdlog`.
 
