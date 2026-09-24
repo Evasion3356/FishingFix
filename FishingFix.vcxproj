@@ -36,6 +36,14 @@
     <RootNamespace>FishingFix</RootNamespace>
     <ProjectName>FishingFix</ProjectName>
   </PropertyGroup>
+  <PropertyGroup>
+    <!-- Without this, Visual Studio's Fast Up-to-Date Check can decide
+         the project doesn't need building at all and skip invoking
+         MSBuild, meaning PostBuildEvent (the auto-locate + deploy
+         step) never runs. Kept here rather than in the .vcxproj.user:
+         that file is gitignored and Visual Studio can reset it. -->
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>

@@ -160,7 +160,7 @@ auto-locates the RDR2 install directory
 sibling project, since each is its own separate git repo) and copies the
 built `.asi` (+ PDB in Debug) straight into it, on every build regardless
 of whether the build itself was up to date.
-`DisableFastUpToDateCheck` is set in the `.vcxproj.user` so this also
+`DisableFastUpToDateCheck` is set in the tracked `.vcxproj` so this also
 holds for Visual Studio IDE builds, not just command-line MSBuild.
 **RDR2.exe must have the ASI ejected first** (this project's dev loop
 used ScriptHookRDR2's eject/hot-reinject feature, not closing the game)
