@@ -156,7 +156,9 @@ jobs:
           display_name: ${{ env.PROJECT }}
           version: ${{ env.TAG }}
           category: main
-          archive_existing_version: true
+          # false moves the previous version to "Old versions", where it stays
+          # downloadable; true archives it, which hides it from users.
+          archive_existing_version: false
           update_mod_version: true
           primary_mod_manager_download: true
           changelog: ${{ steps.notes.outputs.changelog }}
