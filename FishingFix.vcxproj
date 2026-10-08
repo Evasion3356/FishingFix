@@ -13,9 +13,6 @@
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\script.cpp" />
-    <ClCompile Include="src\FishingFix.cpp" />
-    <ClCompile Include="src\DeadEyeFix.cpp" />
-    <ClCompile Include="src\GameMemory.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="external\ScriptHookSDK\inc\main.h" />
@@ -24,11 +21,15 @@
     <ClInclude Include="external\ScriptHookSDK\inc\types.h" />
     <ClInclude Include="src\script.h" />
     <ClInclude Include="src\Log.h" />
-    <ClInclude Include="src\FishingFix.h" />
-    <ClInclude Include="src\DeadEyeFix.h" />
-    <ClInclude Include="src\GameMemory.h" />
+    <ClInclude Include="src\FishingFixLog.h" />
     <ClInclude Include="external\spdlog\include\spdlog\spdlog.h" />
     <ClInclude Include="external\spdlog\include\spdlog\sinks\basic_file_sink.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The fixes themselves; Rampagio links the same library. -->
+    <ProjectReference Include="FishingFixLib.vcxproj">
+      <Project>{5B2E8C4A-3D71-4F96-A0B8-6C1D9E2F7A35}</Project>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{7F3A9D1C-6E4B-4C2A-9F5D-1B8A3E7C2D6F}</ProjectGuid>

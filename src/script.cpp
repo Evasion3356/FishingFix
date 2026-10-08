@@ -21,17 +21,19 @@
 #include "script.h"
 #include "FishingFix.h"
 #include "DeadEyeFix.h"
+#include "FishingFixLog.h"
 #include "Log.h"
 
 void ScriptMain()
 {
+	FishingFix::Log::SetSink([](std::string_view line) { Log::Write("{}", line); });
 	Log::Write("FishingFix started");
 	FishingFix::Init();
 
 	while (true)
 	{
 		FishingFix::Tick();
-		DeadEyeFix::OnTick();
+		FishingFix::DeadEyeFix::OnTick();
 		WAIT(0);
 	}
 }

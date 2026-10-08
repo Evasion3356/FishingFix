@@ -109,7 +109,7 @@
 
 #include "FishingFix.h"
 #include "GameMemory.h"
-#include "Log.h"
+#include "FishingFixLog.h"
 
 #include <array>
 #include <cstdint>

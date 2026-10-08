@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-namespace GameMemory
+namespace FishingFix::GameMemory
 {
 	struct FwBasePool
 	{

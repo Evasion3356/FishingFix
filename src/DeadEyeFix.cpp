@@ -35,11 +35,11 @@
 
 #include "DeadEyeFix.h"
 #include "GameMemory.h"
-#include "Log.h"
+#include "FishingFixLog.h"
 
 #include <cstdint>
 
-namespace DeadEyeFix
+namespace FishingFix::DeadEyeFix
 {
 	namespace
 	{

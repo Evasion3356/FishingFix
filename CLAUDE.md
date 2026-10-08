@@ -205,12 +205,34 @@ it should be uploaded to Nexus again too.
 The projects target toolset v145 (VS 2026); if the runner only has an older
 Visual Studio, the workflow builds with v143 instead.
 
+## Library (FishingFixLib.vcxproj)
+
+The fixes build as a static library, `FishingFixLib.vcxproj`, that the
+ASI (`FishingFix.vcxproj`, a `ProjectReference`) links. `../Rampagio`
+pulls this repo in as a git submodule and links the same library, so the
+library must stay host-neutral:
+
+- Everything is in `namespace FishingFix` (`FishingFix::GameMemory`,
+  `FishingFix::DeadEyeFix`): a host links it next to its own
+  `PatternScan`/`GamePointers`/`Log`, so no global names.
+- No `DllMain`, script loop, INI or log file. The library logs through
+  `FishingFix::Log` (`src/FishingFixLog.h`), which forwards each line to
+  the sink the host sets with `FishingFix::Log::SetSink`; `script.cpp`
+  points it at this ASI's spdlog `Log::Write`. Don't include `Log.h`
+  from library sources: a host with its own inline `Log::detail` would
+  get two different definitions in one binary.
+- It needs no ScriptHookSDK or spdlog headers, and must keep the same
+  compiler settings as its hosts (`/MT`, `/MTd`, v145, `stdcpplatest`).
+- Public API: `src/FishingFix.h` (`Init`, `Tick`), `src/DeadEyeFix.h`
+  (`OnTick`), `src/FishingFixLog.h`. Changing it breaks Rampagio's build
+  once it moves its submodule pin.
+
 ## Source layout
 
 - `src/main.cpp` -- `DllMain`, registers `ScriptMain`.
 - `src/script.h/.cpp` -- `ScriptMain`'s loop: `FishingFix::Tick()`, then
-  `DeadEyeFix::OnTick()`, then `WAIT(0)`, nothing else. No menu, no
-  keyboard handler -- always on.
+  `FishingFix::DeadEyeFix::OnTick()`, then `WAIT(0)`, nothing else. No
+  menu, no keyboard handler -- always on. Sets the library's log sink.
 - `src/FishingFix.h/.cpp` -- the actual fix. **Its `.cpp` header comment
   has the full root-cause trace** -- read it before changing the delay
   or the phase gating.

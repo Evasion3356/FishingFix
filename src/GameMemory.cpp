@@ -1,12 +1,12 @@
 #include "GameMemory.h"
-#include "Log.h"
+#include "FishingFixLog.h"
 
 #include <windows.h>
 #include <cstddef>
 #include <cstdio>
 #include <intrin.h>
 
-namespace GameMemory
+namespace FishingFix::GameMemory
 {
 	namespace
 	{
